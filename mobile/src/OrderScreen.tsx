@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { euro, getOrder, Order, OrderStatus } from './api';
 import { colors } from './theme';
 
@@ -10,7 +10,9 @@ const STEPS: { status: OrderStatus; label: string }[] = [
 ];
 const rank = (s: OrderStatus) => STEPS.findIndex((x) => x.status === s);
 
-export function OrderScreen({ orderId }: { orderId: string | null }) {
+type Props = { orderId: string | null; onReorder: (order: Order) => void; onOrderChange?: (order: Order) => void };
+
+export function OrderScreen({ orderId, onReorder, onOrderChange }: Props) {
   const [order, setOrder] = useState<Order | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,6 +25,7 @@ export function OrderScreen({ orderId }: { orderId: string | null }) {
         if (!stopped) {
           setOrder(o);
           setError(null);
+          onOrderChange?.(o);
         }
       } catch (e) {
         if (!stopped) setError((e as Error).message);
@@ -34,6 +37,7 @@ export function OrderScreen({ orderId }: { orderId: string | null }) {
       stopped = true;
       clearInterval(t);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
   if (!orderId) {
@@ -51,7 +55,6 @@ export function OrderScreen({ orderId }: { orderId: string | null }) {
     );
   }
 
-  const closed = order.status === 'cancelled' || order.status === 'done';
   return (
     <ScrollView contentContainerStyle={{ padding: 16 }}>
       <Text style={styles.title}>Commande n°{order.number}</Text>
@@ -78,17 +81,32 @@ export function OrderScreen({ orderId }: { orderId: string | null }) {
       <View style={styles.card}>
         {order.items.map((it, i) => (
           <View key={i} style={styles.row}>
-            <Text style={{ flex: 1 }}>{it.quantity} × {it.name}</Text>
+            <View style={{ flex: 1 }}>
+              <Text>{it.quantity} × {it.name}</Text>
+              {it.details ? <Text style={styles.small}>{it.details}</Text> : null}
+            </View>
             <Text>{euro(it.quantity * it.unit_price_cents)}</Text>
           </View>
         ))}
+        {order.discount_cents > 0 && (
+          <View style={styles.row}>
+            <Text style={{ flex: 1, color: colors.green }}>🎁 Pizza offerte</Text>
+            <Text style={{ color: colors.green }}>−{euro(order.discount_cents)}</Text>
+          </View>
+        )}
         <View style={[styles.row, { borderTopWidth: 1, borderColor: colors.line, paddingTop: 8 }]}>
           <Text style={[styles.bold, { flex: 1 }]}>Total</Text>
           <Text style={styles.bold}>{euro(order.total_cents)}</Text>
         </View>
-        <Text style={styles.muted}>{order.payment_status === 'paid' ? '✅ Payé en ligne' : '💶 À régler au retrait'}</Text>
+        <Text style={styles.muted}>
+          {order.total_cents === 0 ? '' : order.payment_status === 'paid' ? '✅ Payé en ligne' : '💶 À régler au retrait'}
+        </Text>
       </View>
-      {!closed && <Text style={styles.muted}>Little Italy · Trans-en-Provence</Text>}
+
+      <Pressable style={styles.reorder} onPress={() => onReorder(order)}>
+        <Text style={styles.reorderText}>↻ Commander à nouveau</Text>
+      </Pressable>
+      <Text style={[styles.muted, { marginTop: 16 }]}>Little Italy · Trans-en-Provence</Text>
     </ScrollView>
   );
 }
@@ -102,7 +120,10 @@ const styles = StyleSheet.create({
   dot: { width: 16, height: 16, borderRadius: 8, backgroundColor: colors.line, marginRight: 12 },
   stepText: { fontSize: 17, color: colors.muted },
   card: { backgroundColor: colors.card, borderRadius: 12, padding: 14, marginVertical: 16, borderWidth: 1, borderColor: colors.line },
-  row: { flexDirection: 'row', paddingVertical: 4 },
+  row: { flexDirection: 'row', paddingVertical: 4, gap: 8 },
   bold: { fontWeight: '700' },
   muted: { color: colors.muted },
+  small: { color: colors.muted, fontSize: 13 },
+  reorder: { borderWidth: 1, borderColor: colors.red, borderRadius: 12, padding: 14, alignItems: 'center' },
+  reorderText: { color: colors.red, fontWeight: '700', fontSize: 16 },
 });

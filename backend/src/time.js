@@ -30,14 +30,20 @@ const toHHMM = (min) =>
   `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 
 // Créneaux de retrait encore disponibles aujourd'hui.
-export function availableSlots(config, now = new Date()) {
+// opts : extraLeadMinutes (mode rush), maxPerSlot (capacité du four, 0 = illimité),
+// booked (Map heure → pizzas déjà réservées), pizzas (pizzas de la commande en cours).
+export function availableSlots(config, now = new Date(), opts = {}) {
+  const { extraLeadMinutes = 0, maxPerSlot = 0, booked = new Map(), pizzas = 1 } = opts;
   const local = localNow(config.timezone, now);
   if (config.closedWeekdays.includes(local.weekday)) return { date: local.date, slots: [] };
-  const earliest = local.minutes + config.leadMinutes;
+  const earliest = local.minutes + config.leadMinutes + extraLeadMinutes;
   const slots = [];
   for (const [open, close] of config.hours) {
     for (let t = toMinutes(open); t <= toMinutes(close); t += config.slotMinutes) {
-      if (t >= earliest) slots.push(toHHMM(t));
+      const hhmm = toHHMM(t);
+      if (t < earliest) continue;
+      if (maxPerSlot && (booked.get(hhmm) ?? 0) + Math.max(pizzas, 1) > maxPerSlot) continue;
+      slots.push(hhmm);
     }
   }
   return { date: local.date, slots };

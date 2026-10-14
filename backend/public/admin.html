@@ -13,19 +13,29 @@
   nav button { background:transparent; color:#fff; border:1px solid #fff9; padding:8px 14px; border-radius:8px; font-size:16px; }
   nav button.on { background:#fff; color:var(--red); }
   main { padding:16px; max-width:900px; margin:auto; }
+  h3 { margin:24px 0 8px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .grow { flex:1; }
   .badge { padding:2px 8px; border-radius:99px; font-size:13px; color:#fff; }
   .new{background:var(--red)} .preparing{background:var(--amber)} .ready{background:var(--green)} .done{background:#999} .cancelled{background:#555}
+  .tag { background:#fff3cd; border:1px solid #f0d98a; border-radius:6px; padding:1px 6px; font-size:13px; }
   .time { font-size:22px; font-weight:700; }
-  button.act { padding:10px 14px; border:0; border-radius:8px; font-size:16px; background:var(--ink); color:#fff; }
-  button.act.green { background:var(--green); } button.act.red { background:#999; }
-  ul { margin:8px 0; padding-left:20px; }
-  input, select { padding:8px; font-size:16px; border:1px solid var(--line); border-radius:8px; }
+  button.act { padding:10px 14px; border:0; border-radius:8px; font-size:16px; background:var(--ink); color:#fff; cursor:pointer; }
+  button.act.green { background:var(--green); } button.act.red { background:#999; } button.act.sm { padding:6px 10px; font-size:14px; }
+  ul { margin:4px 0 8px; padding-left:20px; }
+  li small { color:var(--muted); }
+  input, select, textarea { padding:8px; font-size:16px; border:1px solid var(--line); border-radius:8px; font-family:inherit; }
+  label.f { display:block; font-size:13px; color:var(--muted); margin-top:8px; }
+  label.f input, label.f select, label.f textarea { display:block; width:100%; color:var(--ink); }
   .muted { color:var(--muted); font-size:14px; }
-  .off { opacity:.5; }
+  .off { opacity:.55; }
+  details > summary { cursor:pointer; list-style:none; }
+  details > summary::-webkit-details-marker { display:none; }
+  img.thumb { width:64px; height:64px; object-fit:cover; border-radius:8px; background:#eee; }
   #login { max-width:340px; margin:60px auto; }
+  .big { font-size:18px; padding:14px 18px; }
+  .saved { color:var(--green); font-size:14px; }
 </style>
 </head>
 <body>
@@ -34,6 +44,7 @@
   <nav id="nav" hidden>
     <button data-tab="orders" class="on">Commandes</button>
     <button data-tab="menu">Carte</button>
+    <button data-tab="settings">Réglages</button>
   </nav>
 </header>
 <main>
@@ -44,12 +55,15 @@
   </div>
   <section id="orders" hidden></section>
   <section id="menu" hidden></section>
+  <section id="settings" hidden></section>
 </main>
 <script>
 const $ = (s) => document.querySelector(s);
 const euro = (c) => (c / 100).toFixed(2).replace('.', ',') + ' €';
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toCents = (v) => Math.round(parseFloat(String(v).replace(',', '.')) * 100);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const STATUS_LABEL = { new:'Nouvelle', preparing:'En préparation', ready:'Prête', done:'Retirée', cancelled:'Annulée' };
+const KINDS = { pizza:'Pizza', boisson:'Boisson', dessert:'Dessert', autre:'Autre' };
 let token = sessionStorage.getItem('adminToken') || '';
 let tab = 'orders', knownIds = new Set(), first = true, timer;
 
@@ -57,12 +71,14 @@ async function api(path, opts = {}) {
   const res = await fetch('/api/admin' + path, {
     ...opts,
     headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
   if (res.status === 401 || res.status === 503) throw Object.assign(new Error('auth'), { auth: true, status: res.status });
-  if (!res.ok) throw new Error((await res.json()).error || res.status);
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.status);
+  return data;
 }
+const safe = (fn) => async (...a) => { try { await fn(...a); } catch (e) { if (e.auth) refresh(); else alert(e.message); } };
 
 function beep() {
   try {
@@ -72,21 +88,22 @@ function beep() {
   } catch {}
 }
 
+/* ---------- Commandes ---------- */
 function orderCard(o) {
   const next = { new:['preparing','Préparer','act'], preparing:['ready','Prête ✓','act green'], ready:['done','Retirée','act'] }[o.status];
   const pay = o.payment_status === 'paid' ? '✅ Payée en ligne' : '💶 À encaisser au retrait';
   return `<div class="card">
     <div class="row"><span class="time">${esc(o.pickup_time)}</span>
       <span class="grow"><b>#${o.number}</b> ${esc(o.customer_name)} · <a href="tel:${esc(o.phone)}">${esc(o.phone)}</a></span>
+      ${o.reward_used ? '<span class="tag">🎁 pizza offerte</span>' : ''}
       <span class="badge ${o.status}">${STATUS_LABEL[o.status]}</span></div>
-    <ul>${o.items.map((i) => `<li>${i.quantity} × ${esc(i.name)}</li>`).join('')}</ul>
+    <ul>${o.items.map((i) => `<li><b>${i.quantity} × ${esc(i.name)}</b>${i.details ? `<br><small>${esc(i.details)}</small>` : ''}</li>`).join('')}</ul>
     ${o.note ? `<p class="muted">📝 ${esc(o.note)}</p>` : ''}
-    <div class="row"><b class="grow">${euro(o.total_cents)} — ${pay}</b>
+    <div class="row"><b class="grow">${euro(o.total_cents)}${o.discount_cents ? ` (dont ${euro(o.discount_cents)} offerts)` : ''} — ${pay}</b>
       ${next ? `<button class="${next[2]}" data-id="${o.id}" data-status="${next[0]}">${next[1]}</button>` : ''}
       ${['new','preparing'].includes(o.status) ? `<button class="act red" data-id="${o.id}" data-status="cancelled">Annuler</button>` : ''}
     </div></div>`;
 }
-
 async function loadOrders() {
   const { orders } = await api('/orders');
   const fresh = orders.filter((o) => o.status === 'new' && !knownIds.has(o.id));
@@ -99,62 +116,186 @@ async function loadOrders() {
     (past.length ? `<h3>Terminées aujourd'hui</h3>` + past.map(orderCard).join('') : '');
 }
 
-async function loadMenu() {
-  const { items } = await api('/menu');
-  $('#menu').innerHTML = `
-    <div class="card"><b>Ajouter un article</b><div class="row" style="margin-top:8px">
-      <input id="nCat" placeholder="Catégorie (Pizzas…)" list="cats"><input id="nName" placeholder="Nom" class="grow">
-      <input id="nPrice" placeholder="Prix €" size="6" inputmode="decimal"><button class="act" id="nAdd">Ajouter</button></div>
-      <datalist id="cats">${[...new Set(items.map((i) => i.category))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>` +
-    items.map((i) => `<div class="card row ${i.available ? '' : 'off'}" data-item="${i.id}">
-      <div class="grow"><b>${esc(i.name)}</b> <span class="muted">${esc(i.category)}</span><br><span class="muted">${esc(i.description)}</span></div>
-      <input value="${(i.price_cents / 100).toFixed(2)}" size="6" inputmode="decimal" data-price>
-      <button class="act" data-toggle>${i.available ? 'Disponible' : 'Masquée'}</button></div>`).join('');
-  $('#nAdd').onclick = async () => {
-    const priceCents = Math.round(parseFloat($('#nPrice').value.replace(',', '.')) * 100);
-    if (!$('#nName').value || !$('#nCat').value || isNaN(priceCents)) return alert('Catégorie, nom et prix requis');
-    await api('/menu', { method: 'POST', body: { category: $('#nCat').value, name: $('#nName').value, priceCents } });
-    loadMenu();
-  };
-  document.querySelectorAll('[data-item]').forEach((el) => {
-    const id = el.dataset.item, item = items.find((i) => i.id == id);
-    el.querySelector('[data-price]').onchange = async (e) => {
-      const priceCents = Math.round(parseFloat(e.target.value.replace(',', '.')) * 100);
-      if (isNaN(priceCents)) return loadMenu();
-      await api('/menu/' + id, { method: 'PATCH', body: { priceCents } }); loadMenu();
-    };
-    el.querySelector('[data-toggle]').onclick = async () => {
-      await api('/menu/' + id, { method: 'PATCH', body: { available: !item.available } }); loadMenu();
-    };
+/* ---------- Réglages ---------- */
+async function loadSettings() {
+  const s = await api('/settings');
+  $('#settings').innerHTML = `
+    <div class="card">
+      <div class="row"><div class="grow"><b>Prise de commandes</b><div class="muted">Fermez en un clic quand vous n'en pouvez plus ou en cas de fermeture.</div></div>
+      <button class="act big ${s.ordersOpen ? 'green' : ''}" id="sOpen">${s.ordersOpen ? '🟢 Ouvert' : '🔴 Fermé'}</button></div>
+    </div>
+    <div class="card">
+      <label class="f">Mode « rush » : délai de préparation supplémentaire
+        <select id="sRush">${[0,10,15,20,30,45,60].map((m) => `<option value="${m}" ${m === s.rushMinutes ? 'selected' : ''}>${m ? '+' + m + ' min' : 'Aucun'}</option>`).join('')}</select></label>
+      <label class="f">Pizzas maximum par créneau de 15 min (0 = illimité)
+        <input id="sMax" type="number" min="0" max="100" value="${s.maxPizzasPerSlot}"></label>
+      <label class="f">Message affiché en haut de l'appli (pizza du moment, promo, congés…)
+        <input id="sBanner" maxlength="140" value="${esc(s.banner)}" placeholder="Ex : 🔥 Pizza du moment : Diavola à 11 € !"></label>
+      <p class="row"><button class="act" id="sSave">Enregistrer</button><span class="saved" id="sOk"></span></p>
+    </div>`;
+  $('#sOpen').onclick = safe(async () => { await api('/settings', { method: 'PUT', body: { ordersOpen: !s.ordersOpen } }); loadSettings(); });
+  $('#sSave').onclick = safe(async () => {
+    await api('/settings', { method: 'PUT', body: { rushMinutes: +$('#sRush').value, maxPizzasPerSlot: +$('#sMax').value, banner: $('#sBanner').value } });
+    $('#sOk').textContent = '✓ Enregistré';
   });
 }
 
+/* ---------- Carte ---------- */
+const sizesToText = (sizes) => JSON.parse(sizes || '[]').map((s) => `${s.label}=${(s.extra_cents / 100).toFixed(2).replace('.', ',')}`).join('; ');
+const textToSizes = (t) => t.split(';').map((p) => p.trim()).filter(Boolean).map((p) => {
+  const [label, price] = p.split('=');
+  return { label: (label || '').trim(), extra_cents: price ? toCents(price) : 0 };
+});
+
+function itemCard(i) {
+  return `<details class="card ${i.available ? '' : 'off'}" data-item="${i.id}">
+    <summary class="row">
+      ${i.image_url ? `<img class="thumb" src="${esc(i.image_url)}" alt="">` : '<div class="thumb"></div>'}
+      <div class="grow"><b>${esc(i.name)}</b> <span class="muted">${esc(i.category)} · ${KINDS[i.kind]}</span><br><span class="muted">${esc(i.description)}</span></div>
+      <b>${euro(i.price_cents)}</b><span class="muted">${i.available ? '' : '(masqué)'} ✎</span>
+    </summary>
+    <label class="f">Nom<input data-f="name" value="${esc(i.name)}"></label>
+    <div class="row"><label class="f grow">Catégorie<input data-f="category" value="${esc(i.category)}"></label>
+      <label class="f">Type<select data-f="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${k === i.kind ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="f">Prix €<input data-f="price" size="6" inputmode="decimal" value="${(i.price_cents / 100).toFixed(2)}"></label></div>
+    <label class="f">Description<input data-f="description" value="${esc(i.description)}"></label>
+    <label class="f">Ingrédients (séparés par des virgules — le client peut en retirer, pizzas uniquement)<input data-f="ingredients" value="${esc(i.ingredients)}"></label>
+    <label class="f">Allergènes (ex : gluten, lait, œufs)<input data-f="allergens" value="${esc(i.allergens)}"></label>
+    <label class="f">Tailles — format « Nom=supplément € ; Nom=supplément € » (pizzas uniquement)<input data-f="sizes" value="${esc(sizesToText(i.sizes))}"></label>
+    <p><label><input type="checkbox" data-f="vegetarian" ${i.vegetarian ? 'checked' : ''}> Végétarien</label>
+       &nbsp; <label><input type="checkbox" data-f="available" ${i.available ? 'checked' : ''}> Disponible</label></p>
+    <div class="row"><button class="act" data-save>Enregistrer</button>
+      <label class="act sm" style="cursor:pointer">📷 Photo<input type="file" accept="image/*" data-photo hidden></label>
+      ${i.image_url ? '<button class="act red sm" data-rmphoto>Retirer la photo</button>' : ''}</div>
+  </details>`;
+}
+
+function resizeToJpeg(file, max = 800) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.8));
+    };
+    img.onerror = () => reject(new Error('Image illisible'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+async function loadMenu() {
+  const { items, supplements, combos } = await api('/menu');
+  const open = new Set([...document.querySelectorAll('#menu details[open]')].map((d) => d.dataset.item || d.dataset.sup || d.dataset.combo));
+  const cats = [...new Set(items.map((i) => i.category))];
+  $('#menu').innerHTML = `
+    <h3>Articles</h3>
+    <div class="card"><b>Ajouter un article</b><div class="row" style="margin-top:8px">
+      <input id="nCat" placeholder="Catégorie (Pizzas…)" list="cats"><input id="nName" placeholder="Nom" class="grow">
+      <select id="nKind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+      <input id="nPrice" placeholder="Prix €" size="6" inputmode="decimal"><button class="act" id="nAdd">Ajouter</button></div>
+      <datalist id="cats">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+    ${items.map(itemCard).join('')}
+    <h3>Suppléments (pizzas)</h3>
+    ${supplements.map((s) => `<div class="card row ${s.available ? '' : 'off'}" data-sup="${s.id}">
+      <input data-f="name" class="grow" value="${esc(s.name)}"><input data-f="price" size="6" inputmode="decimal" value="${(s.price_cents / 100).toFixed(2)}">
+      <label><input type="checkbox" data-f="available" ${s.available ? 'checked' : ''}> actif</label><button class="act sm" data-savesup>OK</button></div>`).join('')}
+    <div class="card row"><input id="sName" class="grow" placeholder="Nouveau supplément"><input id="sPrice" size="6" placeholder="Prix €" inputmode="decimal"><button class="act sm" id="sAdd">Ajouter</button></div>
+    <h3>Formules</h3>
+    <p class="muted">Composition : liste de types séparés par des virgules (pizza, boisson, dessert, autre). Le client choisit un article de chaque type.</p>
+    ${combos.map((c) => `<div class="card ${c.available ? '' : 'off'}" data-combo="${c.id}">
+      <div class="row"><input data-f="name" class="grow" value="${esc(c.name)}"><input data-f="price" size="6" inputmode="decimal" value="${(c.price_cents / 100).toFixed(2)}"></div>
+      <div class="row" style="margin-top:8px"><input data-f="description" class="grow" value="${esc(c.description)}"><input data-f="slots" value="${esc(c.slots.join(', '))}">
+      <label><input type="checkbox" data-f="available" ${c.available ? 'checked' : ''}> active</label><button class="act sm" data-savecombo>OK</button></div></div>`).join('')}
+    <div class="card"><b>Nouvelle formule</b><div class="row" style="margin-top:8px"><input id="cName" class="grow" placeholder="Nom"><input id="cSlots" placeholder="pizza, boisson" value="pizza, boisson"><input id="cPrice" size="6" placeholder="Prix €" inputmode="decimal"><button class="act sm" id="cAdd">Ajouter</button></div></div>`;
+  document.querySelectorAll('#menu details').forEach((d) => { d.open = open.has(d.dataset.item); });
+
+  $('#nAdd').onclick = safe(async () => {
+    const priceCents = toCents($('#nPrice').value);
+    if (!$('#nName').value || !$('#nCat').value || isNaN(priceCents)) return alert('Catégorie, nom et prix requis');
+    await api('/menu', { method: 'POST', body: { category: $('#nCat').value, name: $('#nName').value, kind: $('#nKind').value, priceCents } });
+    loadMenu();
+  });
+  $('#sAdd').onclick = safe(async () => {
+    const priceCents = toCents($('#sPrice').value);
+    if (!$('#sName').value || isNaN(priceCents)) return alert('Nom et prix requis');
+    await api('/supplements', { method: 'POST', body: { name: $('#sName').value, priceCents } }); loadMenu();
+  });
+  $('#cAdd').onclick = safe(async () => {
+    const priceCents = toCents($('#cPrice').value);
+    const slots = $('#cSlots').value.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!$('#cName').value || isNaN(priceCents)) return alert('Nom et prix requis');
+    await api('/combos', { method: 'POST', body: { name: $('#cName').value, priceCents, slots } }); loadMenu();
+  });
+
+  const val = (root, f) => { const el = root.querySelector(`[data-f="${f}"]`); return el.type === 'checkbox' ? el.checked : el.value; };
+  document.querySelectorAll('[data-item]').forEach((el) => {
+    const id = el.dataset.item;
+    el.querySelector('[data-save]').onclick = safe(async () => {
+      const priceCents = toCents(val(el, 'price'));
+      if (isNaN(priceCents)) return alert('Prix invalide');
+      await api('/menu/' + id, { method: 'PATCH', body: {
+        name: val(el, 'name'), category: val(el, 'category'), kind: val(el, 'kind'), description: val(el, 'description'),
+        ingredients: val(el, 'ingredients'), allergens: val(el, 'allergens'), vegetarian: val(el, 'vegetarian'),
+        available: val(el, 'available'), sizes: textToSizes(val(el, 'sizes')), priceCents } });
+      loadMenu();
+    });
+    el.querySelector('[data-photo]').onchange = safe(async (e) => {
+      if (!e.target.files[0]) return;
+      await api(`/menu/${id}/image`, { method: 'PUT', body: { dataUrl: await resizeToJpeg(e.target.files[0]) } });
+      loadMenu();
+    });
+    const rm = el.querySelector('[data-rmphoto]');
+    if (rm) rm.onclick = safe(async () => { await api(`/menu/${id}/image`, { method: 'PUT', body: { dataUrl: null } }); loadMenu(); });
+  });
+  document.querySelectorAll('[data-sup]').forEach((el) => {
+    el.querySelector('[data-savesup]').onclick = safe(async () => {
+      const priceCents = toCents(val(el, 'price'));
+      if (isNaN(priceCents)) return alert('Prix invalide');
+      await api('/supplements/' + el.dataset.sup, { method: 'PATCH', body: { name: val(el, 'name'), priceCents, available: val(el, 'available') } }); loadMenu();
+    });
+  });
+  document.querySelectorAll('[data-combo]').forEach((el) => {
+    el.querySelector('[data-savecombo]').onclick = safe(async () => {
+      const priceCents = toCents(val(el, 'price'));
+      if (isNaN(priceCents)) return alert('Prix invalide');
+      const slots = val(el, 'slots').split(',').map((s) => s.trim()).filter(Boolean);
+      await api('/combos/' + el.dataset.combo, { method: 'PATCH', body: { name: val(el, 'name'), description: val(el, 'description'), priceCents, slots, available: val(el, 'available') } }); loadMenu();
+    });
+  });
+}
+
+/* ---------- Navigation ---------- */
 function show() {
   $('#login').hidden = true; $('#nav').hidden = false;
-  $('#orders').hidden = tab !== 'orders'; $('#menu').hidden = tab !== 'menu';
+  for (const t of ['orders', 'menu', 'settings']) $('#' + t).hidden = tab !== t;
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
 }
-async function refresh() {
+const loaders = { orders: loadOrders, menu: loadMenu, settings: loadSettings };
+// Seules les commandes se rafraîchissent seules : on ne touche pas aux formulaires en cours d'édition.
+async function refresh(force = false) {
   try {
-    if (tab === 'orders') await loadOrders(); else if (document.activeElement.tagName !== 'INPUT') await loadMenu();
+    if (tab === 'orders' || force) await loaders[tab]();
     show();
   } catch (e) {
     if (!e.auth) return console.error(e);
     clearInterval(timer); sessionStorage.removeItem('adminToken');
-    $('#nav').hidden = true; $('#orders').hidden = $('#menu').hidden = true; $('#login').hidden = false;
+    $('#nav').hidden = true; for (const t of ['orders', 'menu', 'settings']) $('#' + t).hidden = true;
+    $('#login').hidden = false;
     $('#loginErr').textContent = e.status === 503 ? "Le serveur n'a pas de code d'accès configuré." : 'Code incorrect.';
   }
 }
-function start() { clearInterval(timer); first = true; refresh(); timer = setInterval(refresh, 5000); }
+function start() { clearInterval(timer); first = true; refresh(true); timer = setInterval(refresh, 5000); }
 
 $('#go').onclick = () => { token = $('#token').value; sessionStorage.setItem('adminToken', token); start(); };
 $('#token').onkeydown = (e) => e.key === 'Enter' && $('#go').click();
-$('#nav').onclick = (e) => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; show(); refresh(); } };
-$('#orders').onclick = async (e) => {
+$('#nav').onclick = (e) => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; refresh(true); } };
+$('#orders').onclick = safe(async (e) => {
   const b = e.target.closest('button[data-id]'); if (!b) return;
   if (b.dataset.status === 'cancelled' && !confirm('Annuler cette commande ?')) return;
   await api(`/orders/${b.dataset.id}/status`, { method: 'PATCH', body: { status: b.dataset.status } }); refresh();
-};
+});
 if (token) start(); else $('#login').hidden = false;
 </script>
 </body>

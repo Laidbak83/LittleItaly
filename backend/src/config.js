@@ -4,6 +4,7 @@ export function loadConfig(env = process.env) {
     port: Number(env.PORT ?? 3000),
     adminToken: env.ADMIN_TOKEN ?? '',
     dbPath: env.DB_PATH ?? './data/littleitaly.db',
+    uploadsDir: env.UPLOADS_DIR ?? '', // par défaut : <dossier de la base>/uploads
     stripeSecretKey: env.STRIPE_SECRET_KEY ?? '',
     stripePublishableKey: env.STRIPE_PUBLISHABLE_KEY ?? '',
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET ?? '',
