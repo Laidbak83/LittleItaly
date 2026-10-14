@@ -8,6 +8,9 @@ import { buildItemLine, defaultChoice } from './lines';
 import { colors } from './theme';
 import { Chip } from './ui';
 
+type Row = { kind: 'item'; item: MenuItem } | { kind: 'combo'; combo: Combo };
+type Section = { title: string; data: Row[] };
+
 type Props = {
   menu: MenuData | null;
   error: string | null;
@@ -24,10 +27,23 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [combo, setCombo] = useState<Combo | null>(null);
 
+  // Les pizzas d'abord, puis les formules, puis le reste de la carte.
   const sections = useMemo(() => {
     if (!menu) return [];
     const items = menu.items.filter((i) => !vegOnly || i.vegetarian);
-    return [...new Set(items.map((i) => i.category))].map((title) => ({ title, data: items.filter((i) => i.category === title) }));
+    const cats = [...new Set(items.map((i) => i.category))];
+    const comboSection: Section | null =
+      !vegOnly && menu.combos.length
+        ? { title: 'Formules', data: menu.combos.map((combo) => ({ kind: 'combo' as const, combo })) }
+        : null;
+    const out: Section[] = [];
+    const after = Math.max(cats.indexOf('Pizzas'), 0);
+    cats.forEach((title, idx) => {
+      out.push({ title, data: items.filter((i) => i.category === title).map((item) => ({ kind: 'item' as const, item })) });
+      if (idx === after && comboSection) out.push(comboSection);
+    });
+    if (!cats.length && comboSection) out.push(comboSection);
+    return out;
   }, [menu, vegOnly]);
 
   if (!menu) {
@@ -68,20 +84,6 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
           </View>
         </Pressable>
       )}
-      {menu.combos.length > 0 && (
-        <>
-          <Text style={styles.section}>Formules</Text>
-          {menu.combos.map((c) => (
-            <Pressable key={c.id} style={[styles.card, styles.comboCard]} onPress={() => setCombo(c)}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.name}>{c.name}</Text>
-                {c.description ? <Text style={styles.desc}>{c.description}</Text> : null}
-              </View>
-              <Text style={styles.price}>{euro(c.price_cents)}</Text>
-            </Pressable>
-          ))}
-        </>
-      )}
       <View style={styles.filters}>
         <Chip label="🌱 Végétarien" on={vegOnly} onPress={() => setVegOnly(!vegOnly)} />
       </View>
@@ -92,7 +94,7 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
     <>
       <SectionList
         sections={sections}
-        keyExtractor={(i) => String(i.id)}
+        keyExtractor={(row) => (row.kind === 'combo' ? `combo-${row.combo.id}` : `item-${row.item.id}`)}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         ListHeaderComponent={header}
         refreshControl={
@@ -106,7 +108,20 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
           />
         }
         renderSectionHeader={({ section }) => <Text style={styles.section}>{section.title}</Text>}
-        renderItem={({ item }) => {
+        renderItem={({ item: row }) => {
+          if (row.kind === 'combo') {
+            const c = row.combo;
+            return (
+              <Pressable style={[styles.card, styles.comboCard]} onPress={() => setCombo(c)}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.name}>{c.name}</Text>
+                  {c.description ? <Text style={styles.desc}>{c.description}</Text> : null}
+                </View>
+                <Text style={styles.price}>{euro(c.price_cents)}</Text>
+              </Pressable>
+            );
+          }
+          const item = row.item;
           const uri = imageUrl(item.image_url);
           return (
             <Pressable style={styles.card} onPress={() => open(item)} accessibilityLabel={item.name}>
