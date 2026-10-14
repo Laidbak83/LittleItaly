@@ -162,11 +162,25 @@ function kitchenSection(k) {
 
 let statsDays = 30;
 
-let lastStats = null;
+let lastStats = null, lastForecast = null;
 async function loadStats() {
   installTooltip();
-  lastStats = await api(`/stats?days=${statsDays}`);
+  [lastStats, lastForecast] = await Promise.all([api(`/stats?days=${statsDays}`), api('/forecast').catch(() => null)]);
   renderStats();
+}
+
+// Prévision : combien de pizzas attendre dans les 3 prochains jours, et donc de pâtons à prévoir.
+function forecastCard(fc) {
+  if (!fc) return '';
+  const label = (d, i) => (i === 0 ? "Aujourd'hui" : i === 1 ? 'Demain' : '') + ` ${WEEKDAY[d.weekday]}`;
+  const rows = fc.days.map((d, i) => {
+    if (!d.open) return `<tr><td>${label(d, i)}</td><td colspan="3" class="muted">Fermé</td></tr>`;
+    const exp = d.reliable ? `≈ ${fr(d.expected_pizzas, 0)} pizzas (${fr(d.expected_orders, 0)} commandes)` : '<span class="muted">pas assez d\'historique</span>';
+    return `<tr><td><b>${label(d, i)}</b></td><td>${exp}</td><td>${d.booked_pizzas ? `${d.booked_pizzas} déjà réservée${d.booked_pizzas > 1 ? 's' : ''}` : '<span class="muted">—</span>'}</td><td><b>${d.suggested_doughs}</b> pâtons</td></tr>`;
+  }).join('');
+  return `<div class="card"><h3>📦 À prévoir en cuisine</h3>
+    <p class="muted">D'après les mêmes jours des dernières semaines, plus 10 % de marge (jamais moins que ce qui est déjà réservé). Indicatif.</p>
+    <table class="tbl"><tr><th>Jour</th><th>Attendu</th><th>Précommandes</th><th>À prévoir</th></tr>${rows}</table></div>`;
 }
 let lastWidth = 0;
 window.addEventListener('resize', () => {
@@ -195,6 +209,7 @@ function renderStats() {
       <b>Aujourd'hui</b> — ${s.today.orders} commande${s.today.orders > 1 ? 's' : ''} · ${euro(s.today.revenue_cents)} · ${fr(s.today.pizzas)} pizza${s.today.pizzas > 1 ? 's' : ''}
       ${s.today.in_progress ? `· <span class="badge preparing">${s.today.in_progress} en cours</span>` : ''}
     </div>
+    ${forecastCard(lastForecast)}
     <div class="row" style="margin:12px 0">${periodChips}<span class="muted grow" style="text-align:right">${dayLabel(s.range.from)} → ${dayLabel(s.range.to)}</span></div>
     ${empty ? '<div class="card muted">Pas encore de commande sur cette période. Les graphiques se rempliront au fil des commandes.</div>' : ''}
     <div class="tiles">
@@ -282,7 +297,9 @@ let crm = { list: [], segment: 'all', sort: 'spent', q: '' };
 
 async function loadClients() {
   crm.list = (await api('/customers')).customers;
+  $('#clients').innerHTML = '<div id="campaignBox"></div><div id="clientList"></div>';
   renderClients();
+  renderCampaigns().catch(() => {});
 }
 
 function renderClients() {
@@ -298,7 +315,7 @@ function renderClients() {
     .filter((c) => (crm.segment === 'all' || c.segment === crm.segment) && (!q || c.name.toLowerCase().includes(q) || c.phone.includes(q.replace(/\s/g, ''))))
     .sort(sorters[crm.sort]);
 
-  $('#clients').innerHTML = `
+  $('#clientList').innerHTML = `
     <div class="row" style="margin-bottom:10px">
       <input id="cq" class="grow" placeholder="Rechercher un nom ou un numéro" value="${esc(crm.q)}">
       <select id="csort">${[['spent', 'Les plus dépensiers'], ['orders', 'Le plus de commandes'], ['recent', 'Commande la plus récente'], ['name', 'Nom (A→Z)']].map(([k, v]) => `<option value="${k}" ${k === crm.sort ? 'selected' : ''}>${v}</option>`).join('')}</select>

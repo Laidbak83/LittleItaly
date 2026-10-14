@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { initPaymentSheet, presentPaymentSheet } from '@stripe/stripe-react-native';
-import { AppConfig, createOrder, euro, getSlots, Loyalty, MenuData, PaymentMethod, Slots } from './api';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { showAlert } from './alert';
+import { AppConfig, createOrder, dayLabel, euro, getQuote, getSlots, Loyalty, MenuData, PaymentMethod, Quote, Slots } from './api';
 import { useCart } from './cart';
 import { buildItemLine, defaultChoice } from './lines';
 import { getPushToken } from './push';
 import { loadSaved, Saved, saveSaved } from './storage';
+import { initPaymentSheet, presentPaymentSheet } from './stripe';
 import { colors } from './theme';
 import { Chip, Stepper } from './ui';
 
@@ -20,12 +21,16 @@ type Props = {
 export function CartScreen({ menu, config, loyalty, loyaltyId, onOrdered }: Props) {
   const cart = useCart();
   const [slots, setSlots] = useState<Slots | null>(null);
+  const [chosenDate, setChosenDate] = useState<string | null>(null); // null = aujourd'hui
   const [pickupTime, setPickupTime] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [note, setNote] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('on_pickup');
   const [useReward, setUseReward] = useState(false);
+  const [referral, setReferral] = useState('');
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -36,32 +41,58 @@ export function CartScreen({ menu, config, loyalty, loyaltyId, onOrdered }: Prop
   }, []);
 
   const pizzas = cart.pizzaCount;
+  const cartKey = cart.lines.map((l) => l.key + l.quantity).join('|');
+  const online = !!config?.onlinePaymentEnabled && Platform.OS !== 'web';
+
+  // Créneaux du jour choisi (aujourd'hui par défaut).
   useEffect(() => {
     if (cart.count === 0) return;
     setSlots(null);
-    getSlots(pizzas)
+    getSlots(pizzas, chosenDate ?? undefined)
       .then((r) => {
         setSlots(r);
         setPickupTime((t) => (t && r.slots.includes(t) ? t : null));
       })
-      .catch(() => setSlots({ slots: [], maxPizzasPerSlot: 0 }));
-  }, [pizzas, cart.count === 0]);
+      .catch(() => setSlots({ date: chosenDate ?? '', slots: [], maxPizzasPerSlot: 0, offers: {}, closed: null, days: [] }));
+  }, [pizzas, chosenDate, cart.count === 0]);
 
   const eligible = cart.lines.filter((l) => l.rewardEligible);
   const canUseReward = (loyalty?.rewardsAvailable ?? 0) > 0 && eligible.length > 0;
-  const discount = useReward && canUseReward ? Math.min(...eligible.map((l) => l.unitCents)) : 0;
-  const total = cart.subtotalCents - discount;
   useEffect(() => {
     if (!canUseReward) setUseReward(false);
   }, [canUseReward]);
+
+  // Devis : le serveur calcule le total exact (pizza offerte, bienvenue, heures creuses…).
+  const phoneOk = phone.replace(/\D/g, '').length >= 10;
+  useEffect(() => {
+    if (cart.count === 0) return;
+    let stale = false;
+    const t = setTimeout(() => {
+      getQuote({
+        items: cart.lines.map((l) => l.config),
+        pickupTime: pickupTime ?? undefined,
+        pickupDate: chosenDate ?? undefined,
+        loyaltyId,
+        useReward: useReward && canUseReward,
+        phone: phoneOk ? phone : undefined,
+        referralCode: referral.trim() || undefined,
+      })
+        .then((q) => !stale && (setQuote(q), setQuoteError(null)))
+        .catch((e: Error) => !stale && (setQuote(null), setQuoteError(e.message)));
+    }, 300);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [cartKey, pickupTime, chosenDate, useReward, canUseReward, referral, phoneOk, phoneOk ? phone : '', loyaltyId]);
 
   // « Il manque une boisson ? » : suggestions rapides quand le panier contient une pizza.
   const suggestions = useMemo(() => {
     if (!menu || pizzas === 0) return [];
     const has = (k: string) => cart.lines.some((l) => l.kinds.includes(k as never));
     const out = [];
-    if (!has('boisson')) out.push(...menu.items.filter((i) => i.kind === 'boisson').slice(0, 3));
-    if (!has('dessert')) out.push(...menu.items.filter((i) => i.kind === 'dessert').slice(0, 2));
+    if (!has('boisson')) out.push(...menu.items.filter((i) => i.kind === 'boisson' && !i.sold_out).slice(0, 3));
+    if (!has('dessert')) out.push(...menu.items.filter((i) => i.kind === 'dessert' && !i.sold_out).slice(0, 2));
     return out;
   }, [menu, pizzas, cart.lines]);
 
@@ -73,24 +104,33 @@ export function CartScreen({ menu, config, loyalty, loyaltyId, onOrdered }: Prop
     );
   }
 
-  const closed = config ? !config.ordersOpen : false;
-  const valid = !closed && name.trim().length >= 2 && phone.replace(/\D/g, '').length >= 10 && pickupTime;
-  const free = total === 0;
+  const today = slots?.days[0]?.date ?? '';
+  const selectedDate = chosenDate ?? today;
+  const mustPayOnline = quote?.requires_online ?? false;
+  const effectiveMethod: PaymentMethod = mustPayOnline ? 'online' : method;
+  const total = quote?.total_cents ?? cart.subtotalCents;
+  const free = quote !== null && total === 0;
+  const blockedOnline = mustPayOnline && !online;
+  const closed = config ? !config.ordersOpen && selectedDate === today : false;
+  const valid = !closed && !!quote && !blockedOnline && name.trim().length >= 2 && phoneOk && !!pickupTime;
+  const firstOrderOffer = loyalty?.welcome ?? null;
 
   async function submit() {
     if (!valid || !pickupTime) return;
     setBusy(true);
     try {
-      const payOnline = method === 'online' && !free;
+      const payOnline = effectiveMethod === 'online' && !free;
       const { order, clientSecret } = await createOrder({
         customerName: name.trim(),
         phone,
         note,
         pickupTime,
-        paymentMethod: method,
+        pickupDate: chosenDate ?? undefined,
+        paymentMethod: free ? 'on_pickup' : effectiveMethod,
         pushToken: await getPushToken(),
         loyaltyId,
         useReward: useReward && canUseReward,
+        referralCode: referral.trim() || undefined,
         items: cart.lines.map((l) => l.config),
       });
 
@@ -105,7 +145,7 @@ export function CartScreen({ menu, config, loyalty, loyaltyId, onOrdered }: Prop
         const result = await presentPaymentSheet();
         if (result.error) {
           // Commande non payée : elle reste invisible pour le restaurant.
-          Alert.alert('Paiement non finalisé', "Votre commande n'a pas été envoyée. Vous pouvez réessayer ou payer au retrait.");
+          showAlert('Paiement non finalisé', "Votre commande n'a pas été envoyée. Vous pouvez réessayer.");
           return;
         }
       }
@@ -113,9 +153,10 @@ export function CartScreen({ menu, config, loyalty, loyaltyId, onOrdered }: Prop
       await saveSaved(saved);
       cart.clear();
       setUseReward(false);
+      setReferral('');
       onOrdered(order.id);
     } catch (e) {
-      Alert.alert('Erreur', (e as Error).message);
+      showAlert('Erreur', (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -159,34 +200,77 @@ export function CartScreen({ menu, config, loyalty, loyaltyId, onOrdered }: Prop
           </View>
         )}
 
-        {discount > 0 && (
-          <View style={styles.total}>
-            <Text style={[styles.muted, { flex: 1 }]}>Pizza offerte</Text>
-            <Text style={{ color: colors.green, fontWeight: '700' }}>−{euro(discount)}</Text>
+        {firstOrderOffer && (
+          <View style={styles.reward}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rewardTitle}>🎁 Première commande : −{euro(firstOrderOffer.cents)}</Text>
+              <Text style={styles.muted}>Offert dès {euro(firstOrderOffer.min_cents)} de commande, appliqué automatiquement.</Text>
+            </View>
           </View>
         )}
-        <View style={[styles.total, { borderTopWidth: 1, borderColor: colors.line }]}>
-          <Text style={[styles.bold, { flex: 1 }]}>Total</Text>
-          <Text style={styles.bold}>{euro(total)}</Text>
+        {firstOrderOffer && config?.referral && (
+          <TextInput style={styles.input} placeholder="Code ami (facultatif)" value={referral} onChangeText={(t) => setReferral(t.toUpperCase())} autoCapitalize="characters" maxLength={8} />
+        )}
+
+        <View style={styles.sum}>
+          {quote && quote.subtotal_cents !== quote.total_cents && <SumLine label="Sous-total" value={euro(quote.subtotal_cents)} />}
+          {quote && quote.reward_cents > 0 && <SumLine label="Pizza offerte" value={`−${euro(quote.reward_cents)}`} good />}
+          {quote && quote.welcome_cents > 0 && <SumLine label="Offre de bienvenue" value={`−${euro(quote.welcome_cents)}`} good />}
+          {quote?.offer && <SumLine label={`Offre ${quote.offer.label}`} value={`−${euro(quote.offer.cents)}`} good />}
+          <View style={[styles.total, { borderTopWidth: 1, borderColor: colors.line }]}>
+            <Text style={[styles.bold, { flex: 1 }]}>Total</Text>
+            <Text style={styles.bold}>{euro(total)}</Text>
+          </View>
+          {quoteError && <Text style={styles.error}>{quoteError}</Text>}
         </View>
 
-        <Text style={styles.h}>Heure de retrait (aujourd'hui)</Text>
+        <Text style={styles.h}>Jour et heure de retrait</Text>
+        {slots && slots.days.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+            <View style={styles.dayRow}>
+              {slots.days.map((d) => (
+                <Pressable
+                  key={d.date}
+                  disabled={!!d.closed}
+                  onPress={() => setChosenDate(d.date === today ? null : d.date)}
+                  style={[styles.day, selectedDate === d.date && styles.dayOn, !!d.closed && { opacity: 0.45 }]}
+                >
+                  <Text style={[styles.dayText, selectedDate === d.date && { color: '#fff' }]}>{dayLabel(d.date, today)}</Text>
+                  {d.closed ? <Text style={[styles.dayText, { fontSize: 11 }]}>Fermé</Text> : null}
+                </Pressable>
+              ))}
+            </View>
+          </ScrollView>
+        )}
         {closed ? (
           <Text style={styles.muted}>Les commandes sont momentanément fermées.</Text>
         ) : slots === null ? (
           <ActivityIndicator color={colors.red} />
+        ) : slots.closed ? (
+          <Text style={styles.muted}>Fermé ce jour-là{slots.closed !== 'Fermé' ? ` : ${slots.closed}` : ''}.</Text>
         ) : slots.slots.length === 0 ? (
           <Text style={styles.muted}>
             {slots.maxPizzasPerSlot > 0 && pizzas > slots.maxPizzasPerSlot
               ? `Au-delà de ${slots.maxPizzasPerSlot} pizzas, merci d'appeler le restaurant.`
-              : "Plus de créneau disponible aujourd'hui."}
+              : selectedDate === today
+                ? "Plus de créneau disponible aujourd'hui."
+                : 'Plus de créneau disponible ce jour-là.'}
           </Text>
         ) : (
           <View style={styles.wrap}>
-            {slots.slots.map((t) => (
-              <Chip key={t} label={t} on={pickupTime === t} onPress={() => setPickupTime(t)} />
-            ))}
+            {slots.slots.map((t) => {
+              const offer = slots.offers[t];
+              const showOffer = offer && cart.subtotalCents >= offer.min_order_cents;
+              return (
+                <Chip key={t} label={showOffer ? `${t}  −${euro(offer.discount_cents)}` : t} on={pickupTime === t} onPress={() => setPickupTime(t)} />
+              );
+            })}
           </View>
+        )}
+        {slots && Object.keys(slots.offers).length > 0 && (
+          <Text style={styles.offerHint}>
+            💡 {Object.values(slots.offers)[0].label} : un tarif réduit sur certains horaires (marqués d'un −).
+          </Text>
         )}
 
         <Text style={styles.h}>Vos coordonnées</Text>
@@ -198,9 +282,19 @@ export function CartScreen({ menu, config, loyalty, loyaltyId, onOrdered }: Prop
           <>
             <Text style={styles.h}>Paiement</Text>
             <View style={styles.wrap}>
-              <Chip label="Au retrait" on={method === 'on_pickup'} onPress={() => setMethod('on_pickup')} />
-              {config?.onlinePaymentEnabled && <Chip label="En ligne" on={method === 'online'} onPress={() => setMethod('online')} />}
+              {!mustPayOnline && <Chip label="Au retrait" on={effectiveMethod === 'on_pickup'} onPress={() => setMethod('on_pickup')} />}
+              {online && <Chip label="En ligne" on={effectiveMethod === 'online'} onPress={() => setMethod('online')} />}
             </View>
+            {mustPayOnline && (
+              <Text style={styles.notice}>
+                {online
+                  ? `Pour une commande de plus de ${euro(config?.prepayOverCents ?? 0)}, le paiement en ligne est demandé.`
+                  : `Pour une commande de plus de ${euro(config?.prepayOverCents ?? 0)}, le paiement en ligne est demandé : utilisez l'appli ou appelez le restaurant.`}
+              </Text>
+            )}
+            {config?.holdUnpaid && effectiveMethod === 'on_pickup' && (
+              <Text style={styles.notice}>🚶 Vous réglez au retrait : nous lançons votre pizza quand vous nous prévenez avec « J'arrive » (depuis l'onglet Commande), pour qu'elle soit bien chaude.</Text>
+            )}
           </>
         )}
 
@@ -208,11 +302,20 @@ export function CartScreen({ menu, config, loyalty, loyaltyId, onOrdered }: Prop
           {busy ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.submitText}>{method === 'online' && !free ? `Payer ${euro(total)}` : 'Envoyer la commande'}</Text>
+            <Text style={styles.submitText}>{effectiveMethod === 'online' && !free ? `Payer ${euro(total)}` : 'Envoyer la commande'}</Text>
           )}
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+function SumLine({ label, value, good }: { label: string; value: string; good?: boolean }) {
+  return (
+    <View style={styles.total}>
+      <Text style={[styles.muted, { flex: 1 }]}>{label}</Text>
+      <Text style={{ color: good ? colors.green : colors.ink, fontWeight: '600' }}>{value}</Text>
+    </View>
   );
 }
 
@@ -222,16 +325,24 @@ const styles = StyleSheet.create({
   h: { fontSize: 18, fontWeight: '700', color: colors.red, marginTop: 20, marginBottom: 8 },
   line: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, gap: 8 },
   lineName: { fontWeight: '600', fontSize: 16 },
-  total: { flexDirection: 'row', paddingVertical: 8 },
+  sum: { marginTop: 12 },
+  total: { flexDirection: 'row', paddingVertical: 6 },
   bold: { fontWeight: '700', fontSize: 16 },
   muted: { color: colors.muted },
+  error: { color: '#B3261E', marginTop: 6 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  dayRow: { flexDirection: 'row', gap: 8 },
+  day: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card, alignItems: 'center' },
+  dayOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  dayText: { color: colors.ink, fontWeight: '600' },
+  offerHint: { color: colors.green, marginTop: 8, fontSize: 13 },
+  notice: { backgroundColor: '#eef3fb', borderRadius: 10, padding: 10, marginTop: 10, color: '#23407a' },
   suggest: { marginTop: 12, padding: 12, backgroundColor: '#fff8e6', borderRadius: 12, borderWidth: 1, borderColor: '#f0d98a' },
   suggestTitle: { fontWeight: '700', marginBottom: 8 },
   suggestChip: { backgroundColor: colors.card, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: colors.line },
   reward: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, padding: 12, backgroundColor: '#eaf6ec', borderRadius: 12, borderWidth: 1, borderColor: '#b7dfbd' },
   rewardTitle: { fontWeight: '700', color: colors.green },
-  input: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 12, marginBottom: 10, fontSize: 16 },
+  input: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 12, marginTop: 10, fontSize: 16 },
   submit: { backgroundColor: colors.red, borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24 },
   submitText: { color: '#fff', fontWeight: '700', fontSize: 17 },
 });

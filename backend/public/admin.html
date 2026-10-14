@@ -85,6 +85,9 @@
   textarea { width:100%; }
   #tip { position:fixed; z-index:50; background:#222; color:#fff; padding:6px 10px; border-radius:8px; font-size:13px; pointer-events:none; max-width:280px; }
   .stripe { margin-bottom:12px; }
+  .when { display:block; font-size:12px; font-weight:600; color:var(--muted); }
+  .tag.hold { background:#e8eef9; border-color:#b8c8ea; color:#23407a; font-weight:600; }
+  .offer.off { opacity:.55; } h4 { font-size:15px; }
   .insights { margin:6px 0; padding-left:20px; } .insights li { margin:6px 0; }
   .timer { margin:4px 0 0; font-size:14px; min-height:0; }
   .tag.bad { background:#fde8e8; border-color:#f0b4b4; color:#9b1c1c; font-weight:600; }
@@ -120,6 +123,7 @@
   <section id="settings" hidden></section>
 </main>
 <script src="/admin-stats.js"></script>
+<script src="/admin-tools.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const euro = (c) => (c / 100).toFixed(2).replace('.', ',') + ' €';
@@ -152,44 +156,72 @@ function beep() {
 }
 
 /* ---------- Commandes ---------- */
+// Date de retrait lisible : rien si c'est aujourd'hui, sinon « Demain » ou « ven. 16 oct. ».
+function whenLabel(o) {
+  const today = new Date(Date.now() - serverSkew).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+  if (o.pickup_date === today) return '';
+  const tomorrow = new Date(Date.parse(today + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);
+  return o.pickup_date === tomorrow ? 'Demain ' : new Date(o.pickup_date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ';
+}
+function discountText(o) {
+  const parts = [];
+  if (o.discount_cents) parts.push(`${euro(o.discount_cents)} pizza offerte`);
+  if (o.welcome_discount_cents) parts.push(`${euro(o.welcome_discount_cents)} bienvenue`);
+  if (o.offer_discount_cents) parts.push(`${euro(o.offer_discount_cents)} offre ${esc(o.offer_label || '')}`);
+  return parts.length ? ` (remises : ${parts.join(', ')})` : '';
+}
 function orderCard(o) {
   const next = { new:['preparing','Préparer','act'], preparing:['ready','Prête ✓','act green'], ready:['done','Retirée','act'] }[o.status];
   const pay = o.payment_status === 'paid' ? '✅ Payée en ligne' : '💶 À encaisser au retrait';
   return `<div class="card">
-    <div class="row"><span class="time">${esc(o.pickup_time)}</span>
+    <div class="row"><span class="time">${whenLabel(o) ? `<small class="when">${whenLabel(o)}</small>` : ''}${esc(o.pickup_time)}</span>
       <span class="grow"><b>#${o.number}</b> ${esc(o.customer_name)} · <a href="tel:${esc(o.phone)}">${esc(o.phone)}</a></span>
       ${o.reward_used ? '<span class="tag">🎁 pizza offerte</span>' : ''}
       <span class="badge ${o.status}">${STATUS_LABEL[o.status]}</span></div>
     <div class="timer">${timerLine(o)}</div>
     <ul>${o.items.map((i) => `<li><b>${i.quantity} × ${esc(i.name)}</b>${i.details ? `<br><small>${esc(i.details)}</small>` : ''}</li>`).join('')}</ul>
     ${o.note ? `<p class="muted">📝 ${esc(o.note)}</p>` : ''}
-    <div class="row"><b class="grow">${euro(o.total_cents)}${o.discount_cents ? ` (dont ${euro(o.discount_cents)} offerts)` : ''} — ${pay}</b>
+    <div class="row"><b class="grow">${euro(o.total_cents)}${discountText(o)} — ${pay}</b>
+      <button class="act sm" data-print="${o.id}" title="Imprimer le ticket">🖨</button>
       ${next ? `<button class="${next[2]}" data-id="${o.id}" data-status="${next[0]}">${next[1]}</button>` : ''}
       ${['new','preparing'].includes(o.status) ? `<button class="act red" data-id="${o.id}" data-status="cancelled">Annuler</button>` : ''}
     </div></div>`;
 }
-let todayStrip = '', todayAt = 0, serverSkew = 0, typicalPrep = 12;
+let todayStrip = '', todayAt = 0, serverSkew = 0, typicalPrep = 12, lastOrders = new Map();
+const hereIds = new Set(); // clients dont l'arrivée a déjà été signalée par un bip
 // Ligne de chronomètre d'une commande : à lancer, en préparation depuis…, en retard, prête depuis…
 function timerLine(o) {
   const nowMs = Date.now() - serverSkew, pickup = Date.parse(o.pickup_at);
   const min = (ms) => Math.round(ms / 60000);
+  const out = [];
+  if (['new', 'preparing', 'ready'].includes(o.status)) { // le client a prévenu de son arrivée ?
+    if (o.arrival_here) out.push('<span class="tag go">📍 Client sur place</span>');
+    else if (o.arrival_eta_at) {
+      const m = min(Date.parse(o.arrival_eta_at) - nowMs);
+      out.push(`<span class="tag go">🚶 Arrive ${m > 0 ? 'dans ' + m + ' min' : 'maintenant'}</span>`);
+    }
+  }
   if (o.status === 'new') {
     const late = min(nowMs - pickup);
-    if (late > 2) return `<span class="tag bad">⏰ En retard de ${late} min</span>`;
-    const startIn = min(pickup - typicalPrep * 60000 - nowMs);
-    if (startIn <= 0) return '<span class="tag go">🔥 À lancer maintenant</span>';
-    if (startIn <= 90) return `<span class="muted">À lancer dans ${startIn} min</span>`;
-  }
-  if (o.status === 'preparing' && o.preparing_at) {
+    if (o.hold_until_arrival) {
+      out.push(`<span class="tag hold">⏸ En attente du « J'arrive » du client${late > 2 ? ` · retrait prévu à ${esc(o.pickup_time)}` : ''}</span>`);
+    } else if (late > 2) out.push(`<span class="tag bad">⏰ En retard de ${late} min</span>`);
+    else if (o.arrival_here) out.push('<span class="tag go">🔥 À lancer maintenant</span>');
+    else {
+      const target = o.arrival_eta_at ? Math.min(pickup, Date.parse(o.arrival_eta_at)) : pickup;
+      const startIn = min(target - typicalPrep * 60000 - nowMs);
+      if (startIn <= 0) out.push('<span class="tag go">🔥 À lancer maintenant</span>');
+      else if (startIn <= 90) out.push(`<span class="muted">À lancer dans ${startIn} min</span>`);
+    }
+  } else if (o.status === 'preparing' && o.preparing_at) {
     const m = min(nowMs - Date.parse(o.preparing_at)), late = min(nowMs - pickup);
-    if (late > 2) return `<span class="tag bad">⏰ En retard de ${late} min · en préparation depuis ${m} min</span>`;
-    return `<span class="${m > typicalPrep * 1.5 ? 'tag go' : 'muted'}">⏱ En préparation depuis ${m} min</span>`;
-  }
-  if (o.status === 'ready' && o.ready_at) {
+    if (late > 2) out.push(`<span class="tag bad">⏰ En retard de ${late} min · en préparation depuis ${m} min</span>`);
+    else out.push(`<span class="${m > typicalPrep * 1.5 ? 'tag go' : 'muted'}">⏱ En préparation depuis ${m} min</span>`);
+  } else if (o.status === 'ready' && o.ready_at) {
     const m = min(nowMs - Date.parse(o.ready_at));
-    return `<span class="${m > 15 ? 'tag go' : 'muted'}">✅ Prête depuis ${m} min${m > 15 ? ' · le client tarde' : ''}</span>`;
+    out.push(`<span class="${m > 15 ? 'tag go' : 'muted'}">✅ Prête depuis ${m} min${m > 15 ? ' · le client tarde' : ''}</span>`);
   }
-  return '';
+  return out.join(' ');
 }
 async function loadOrders() {
   if (Date.now() - todayAt > 60000) {
@@ -203,12 +235,17 @@ async function loadOrders() {
   const { orders, now: serverNow, typical_prep_minutes } = await api('/orders');
   serverSkew = Date.now() - Date.parse(serverNow);
   typicalPrep = typical_prep_minutes ?? 12;
+  lastOrders = new Map(orders.map((o) => [o.id, o]));
   const fresh = orders.filter((o) => o.status === 'new' && !knownIds.has(o.id));
-  if (fresh.length && !first) beep();
+  const arrived = orders.filter((o) => o.arrival_here && ['new', 'preparing', 'ready'].includes(o.status) && !hereIds.has(o.id));
+  if ((fresh.length || arrived.length) && !first) beep();
+  if (!first && localStorage.getItem('autoPrint') === '1') fresh.forEach(printTicket); // ticket de cuisine automatique
+  arrived.forEach((o) => hereIds.add(o.id));
   orders.forEach((o) => knownIds.add(o.id)); first = false;
   const active = orders.filter((o) => ['new','preparing','ready'].includes(o.status));
   const past = orders.filter((o) => !active.includes(o));
-  $('#orders').innerHTML = (todayStrip || '<div class="stripe"></div>') +
+  const toolbar = `<div class="muted stripe"><label><input type="checkbox" id="autoPrint" ${localStorage.getItem('autoPrint') === '1' ? 'checked' : ''}> 🖨 Imprimer automatiquement chaque nouvelle commande sur cet appareil</label></div>`;
+  $('#orders').innerHTML = (todayStrip || '<div class="stripe"></div>') + toolbar +
     (active.length ? active.map(orderCard).join('') : '<p class="muted">Aucune commande en cours.</p>') +
     (past.length ? `<h3>Terminées aujourd'hui</h3>` + past.map(orderCard).join('') : '');
 }
@@ -233,6 +270,7 @@ async function loadSettings() {
       <p class="row"><input id="leadMin" type="number" min="5" max="90" style="width:90px" value="${s.leadMinutes ?? s.defaultLeadMinutes}"> min
         <button class="act sm" id="leadSave">Enregistrer</button><button class="act red sm" id="leadReset">Valeur par défaut</button><span class="saved" id="leadOk"></span></p>
     </div>
+    ${extraSettingsHtml(s)}
     <div class="card">
       <b>⭐ Pizza de la semaine</b>
       <div class="muted">Mise en avant en haut de la carte de l'appli, avec un prix promo si vous le souhaitez.</div>
@@ -272,6 +310,7 @@ async function loadSettings() {
     $('#' + id).onchange = safe(async (e) => { await api('/settings', { method: 'PUT', body: { [key]: e.target.checked } }); });
   }
   setupPushControls();
+  setupExtraSettings(s);
   $('#fSave').onclick = safe(async () => {
     const id = $('#fItem').value;
     const priceTxt = $('#fPrice').value.trim();
@@ -302,6 +341,7 @@ function itemCard(i) {
       ${i.image_url ? `<img class="thumb" src="${esc(i.image_url)}" alt="">` : '<div class="thumb"></div>'}
       <div class="grow"><b>${esc(i.name)}</b> <span class="muted">${esc(i.category)} · ${KINDS[i.kind]}</span><br><span class="muted">${esc(i.description)}</span></div>
       <b>${euro(i.price_cents)}</b><span class="muted">${i.available ? '' : '(masqué)'} ✎</span>
+      <button class="chip ${i.sold_out_date === parisToday() ? 'on' : ''}" data-soldout="${i.id}" data-state="${i.sold_out_date === parisToday() ? 1 : 0}">${i.sold_out_date === parisToday() ? '🚫 Épuisé · remettre' : "Épuisé aujourd'hui"}</button>
     </summary>
     <label class="f">Nom<input data-f="name" value="${esc(i.name)}"></label>
     <div class="row"><label class="f grow">Catégorie<input data-f="category" value="${esc(i.category)}"></label>
@@ -349,7 +389,8 @@ async function loadMenu() {
     <h3>Suppléments (pizzas)</h3>
     ${supplements.map((s) => `<div class="card row ${s.available ? '' : 'off'}" data-sup="${s.id}">
       <input data-f="name" class="grow" value="${esc(s.name)}"><input data-f="price" size="6" inputmode="decimal" value="${(s.price_cents / 100).toFixed(2)}">
-      <label><input type="checkbox" data-f="available" ${s.available ? 'checked' : ''}> actif</label><button class="act sm" data-savesup>OK</button></div>`).join('')}
+      <label><input type="checkbox" data-f="available" ${s.available ? 'checked' : ''}> actif</label><button class="act sm" data-savesup>OK</button>
+      <button class="chip ${s.sold_out_date === parisToday() ? 'on' : ''}" data-supsold="${s.id}" data-state="${s.sold_out_date === parisToday() ? 1 : 0}">${s.sold_out_date === parisToday() ? '🚫 Épuisé · remettre' : "Épuisé aujourd'hui"}</button></div>`).join('')}
     <div class="card row"><input id="sName" class="grow" placeholder="Nouveau supplément"><input id="sPrice" size="6" placeholder="Prix €" inputmode="decimal"><button class="act sm" id="sAdd">Ajouter</button></div>
     <h3>Formules</h3>
     <p class="muted">Composition : liste de types séparés par des virgules (pizza, boisson, dessert, autre). Le client choisit un article de chaque type. Ex. « Pizza Duo » : une seule case « pizza » (la demi-pizza), la salade est dans le nom de la formule.</p>
@@ -360,6 +401,14 @@ async function loadMenu() {
     <div class="card"><b>Nouvelle formule</b><div class="row" style="margin-top:8px"><input id="cName" class="grow" placeholder="Nom"><input id="cSlots" placeholder="pizza, boisson" value="pizza, boisson"><input id="cPrice" size="6" placeholder="Prix €" inputmode="decimal"><button class="act sm" id="cAdd">Ajouter</button></div></div>`;
   document.querySelectorAll('#menu details').forEach((d) => { d.open = open.has(d.dataset.item); });
 
+  document.querySelectorAll('[data-soldout],[data-supsold]').forEach((btn) => {
+    btn.onclick = safe(async (e) => {
+      e.preventDefault(); e.stopPropagation(); // ne pas ouvrir/fermer la fiche
+      const supplement = btn.dataset.supsold !== undefined;
+      await api(`/${supplement ? 'supplements' : 'menu'}/${supplement ? btn.dataset.supsold : btn.dataset.soldout}`, { method: 'PATCH', body: { soldOutToday: btn.dataset.state !== '1' } });
+      loadMenu();
+    });
+  });
   $('#nAdd').onclick = safe(async () => {
     const priceCents = toCents($('#nPrice').value);
     if (!$('#nName').value || !$('#nCat').value || isNaN(priceCents)) return alert('Catégorie, nom et prix requis');
@@ -482,7 +531,10 @@ function start() { clearInterval(timer); first = true; refresh(true); timer = se
 $('#go').onclick = () => { token = $('#token').value; sessionStorage.setItem('adminToken', token); start(); };
 $('#token').onkeydown = (e) => e.key === 'Enter' && $('#go').click();
 $('#nav').onclick = (e) => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; refresh(true); } };
+$('#orders').onchange = (e) => { if (e.target.id === 'autoPrint') localStorage.setItem('autoPrint', e.target.checked ? '1' : '0'); };
 $('#orders').onclick = safe(async (e) => {
+  const pr = e.target.closest('[data-print]');
+  if (pr) { const o = lastOrders.get(pr.dataset.print); if (o) printTicket(o); return; }
   const b = e.target.closest('button[data-id]'); if (!b) return;
   if (b.dataset.status === 'cancelled' && !confirm('Annuler cette commande ?')) return;
   await api(`/orders/${b.dataset.id}/status`, { method: 'PATCH', body: { status: b.dataset.status } }); refresh();

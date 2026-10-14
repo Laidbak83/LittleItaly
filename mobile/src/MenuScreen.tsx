@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
-import { AppConfig, Combo, euro, frDate, imageUrl, MenuData, MenuItem, Order, ratingText } from './api';
+import { AppConfig, Combo, euro, frDate, imageUrl, Loyalty, MenuData, MenuItem, Order, ratingText } from './api';
 import { useCart } from './cart';
 import { ComboModal } from './ComboModal';
 import { ItemModal } from './ItemModal';
@@ -15,15 +15,17 @@ type Props = {
   menu: MenuData | null;
   error: string | null;
   config: AppConfig | null;
+  loyalty: Loyalty | null;
   lastOrder: Order | null;
   onReload: () => Promise<void>;
   onReorder: (order: Order) => void;
   onRate: () => void;
 };
 
-export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder, onRate }: Props) {
+export function MenuScreen({ menu, error, config, loyalty, lastOrder, onReload, onReorder, onRate }: Props) {
   const cart = useCart();
   const [vegOnly, setVegOnly] = useState(false);
+  const [avoid, setAvoid] = useState<string[]>([]); // allergènes à éviter
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [combo, setCombo] = useState<Combo | null>(null);
@@ -31,7 +33,7 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
   // Les pizzas d'abord, puis les formules, puis le reste de la carte.
   const sections = useMemo(() => {
     if (!menu) return [];
-    const items = menu.items.filter((i) => !vegOnly || i.vegetarian);
+    const items = menu.items.filter((i) => (!vegOnly || i.vegetarian) && !i.allergens.some((a) => avoid.includes(a)));
     const cats = [...new Set(items.map((i) => i.category))];
     const comboSection: Section | null =
       !vegOnly && menu.combos.length
@@ -45,7 +47,7 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
     });
     if (!cats.length && comboSection) out.push(comboSection);
     return out;
-  }, [menu, vegOnly]);
+  }, [menu, vegOnly, avoid]);
 
   if (!menu) {
     return (
@@ -72,14 +74,28 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
   const toRate = !!lastOrder && lastOrder.status === 'done' && (lastOrder.rateable?.length ?? 0) > (lastOrder.ratings?.length ?? 0);
 
   const open = (item: MenuItem) => {
+    if (item.sold_out) return;
     if (item.kind === 'pizza') setEditing(item);
     else cart.addLine(buildItemLine(menu, item, defaultChoice, 1));
   };
+  const allergens = [...new Set(menu.items.flatMap((i) => i.allergens))].sort();
+  const nextClosure = config?.closures[0];
 
   const header = (
     <View>
       {config && !config.ordersOpen && (
         <Text style={[styles.notice, { backgroundColor: '#555' }]}>Les commandes sont momentanément fermées.</Text>
+      )}
+      {nextClosure && (
+        <Text style={[styles.notice, { backgroundColor: '#555' }]}>
+          Fermé {nextClosure.date_from === nextClosure.date_to ? frDate(nextClosure.date_from) : `du ${frDate(nextClosure.date_from)} au ${frDate(nextClosure.date_to)}`}
+          {nextClosure.reason ? ` · ${nextClosure.reason}` : ''}
+        </Text>
+      )}
+      {loyalty?.welcome && (
+        <Text style={[styles.notice, { backgroundColor: colors.green }]}>
+          🎁 −{euro(loyalty.welcome.cents)} sur votre première commande (dès {euro(loyalty.welcome.min_cents)})
+        </Text>
       )}
       {menu.banner ? <Text style={styles.notice}>{menu.banner}</Text> : null}
       {toRate && (
@@ -132,6 +148,17 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
       <View style={styles.filters}>
         <Chip label="🌱 Végétarien" on={vegOnly} onPress={() => setVegOnly(!vegOnly)} />
       </View>
+      {allergens.length > 0 && (
+        <View style={{ marginTop: 10 }}>
+          <Text style={styles.muted}>Éviter :</Text>
+          <View style={[styles.filters, { flexWrap: 'wrap', gap: 6, marginTop: 4 }]}>
+            {allergens.map((a) => (
+              <Chip key={a} label={a} on={avoid.includes(a)} onPress={() => setAvoid(avoid.includes(a) ? avoid.filter((x) => x !== a) : [...avoid, a])} />
+            ))}
+          </View>
+          {avoid.length > 0 && <Text style={styles.allergens}>Selon les informations renseignées par le restaurant. En cas d'allergie, prévenez-nous lors de la commande.</Text>}
+        </View>
+      )}
     </View>
   );
 
@@ -169,7 +196,7 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
           const item = row.item;
           const uri = imageUrl(item.image_url);
           return (
-            <Pressable style={styles.card} onPress={() => open(item)} accessibilityLabel={item.name}>
+            <Pressable style={[styles.card, item.sold_out && { opacity: 0.55 }]} onPress={() => open(item)} disabled={item.sold_out} accessibilityLabel={item.name}>
               {uri ? (
                 <Image source={{ uri }} style={styles.photo} />
               ) : (
@@ -193,9 +220,13 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
                   {item.regular_price_cents ? <Text style={styles.strikeDark}>  {euro(item.regular_price_cents)}</Text> : null}
                 </Text>
               </View>
-              <View style={[styles.addBtn]}>
-                <Text style={styles.addText}>{item.kind === 'pizza' ? '›' : '+'}</Text>
-              </View>
+              {item.sold_out ? (
+                <Text style={styles.soldOut}>Épuisé aujourd'hui</Text>
+              ) : (
+                <View style={[styles.addBtn]}>
+                  <Text style={styles.addText}>{item.kind === 'pizza' ? '›' : '+'}</Text>
+                </View>
+              )}
             </Pressable>
           );
         }}
@@ -242,6 +273,7 @@ const styles = StyleSheet.create({
   bestCard: { flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.line },
   bestName: { fontWeight: '700', fontSize: 15, color: colors.ink },
   rating: { color: '#B97700', fontWeight: '600', fontSize: 13, marginTop: 2 },
+  soldOut: { color: colors.muted, fontWeight: '700', fontSize: 12, maxWidth: 70, textAlign: 'center' },
   addBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.red, alignItems: 'center', justifyContent: 'center' },
   addText: { color: '#fff', fontSize: 22, lineHeight: 26, fontWeight: '600' },
 });

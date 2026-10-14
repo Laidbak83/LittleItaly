@@ -14,7 +14,7 @@ export function ItemModal({ menu, item, onClose, onAdd }: Props) {
   const [halfOn, setHalfOn] = useState(false);
   const [quantity, setQuantity] = useState(1);
 
-  const otherPizzas = menu.halfAndHalf ? menu.items.filter((i) => i.kind === 'pizza' && i.id !== item.id) : [];
+  const otherPizzas = menu.halfAndHalf ? menu.items.filter((i) => i.kind === 'pizza' && i.id !== item.id && !i.sold_out) : [];
   const ingredients = useMemo(
     () => [...new Set([...item.ingredients, ...(choice.halfItem?.ingredients ?? [])])],
     [item, choice.halfItem],
@@ -90,7 +90,7 @@ export function ItemModal({ menu, item, onClose, onAdd }: Props) {
             <>
               <Text style={styles.h}>Suppléments</Text>
               <View style={styles.wrap}>
-                {menu.supplements.map((sp) => (
+                {menu.supplements.filter((sp) => !sp.sold_out).map((sp) => (
                   <Chip
                     key={sp.id}
                     on={choice.extras.includes(sp.id)}

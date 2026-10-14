@@ -9,7 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
 import Stripe from 'stripe';
-import { addDays, availableSlots, localNow, localToDate, weekdayOf } from './time.js';
+import { addDays, availableSlots, daysBetween, localNow, localToDate, weekdayOf } from './time.js';
 import { bestOffer, buildQuote, isFirstOrder, referralCodeFor } from './ordering.js';
 import { createNotifier } from './notifier.js';
 import { computeKitchen, typicalPrepMinutes } from './kitchen.js';
@@ -173,6 +173,7 @@ export async function buildApp({ db, config, stripe, webPush, fetchImpl = fetch,
   const presentOrder = (order, settings = readSettings(db)) => ({
     ...publicOrder(order),
     pickup_at: localToDate(config.timezone, order.pickup_date, order.pickup_time).toISOString(),
+    pickup_in_days: daysBetween(todayDate(), order.pickup_date), // 0 = aujourd'hui, 1 = demain…
     // Pizzas à régler au retrait, pas encore lancées : la cuisine attend le « J'arrive » du client.
     hold_until_arrival: settings.holdUnpaid && order.payment_status === 'unpaid' && order.status === 'new' && !order.arrival_eta_at,
   });
@@ -822,5 +823,7 @@ export async function buildApp({ db, config, stripe, webPush, fetchImpl = fetch,
   }, { prefix: '/api/admin' });
 
   app.get('/admin', (req, reply) => reply.sendFile('admin.html'));
+  // La version web de la commande (voir mobile/README : npm run build:web) est servie sur /commande/.
+  app.get('/', (req, reply) => reply.redirect('/commande/'));
   return app;
 }

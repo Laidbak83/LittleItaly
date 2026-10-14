@@ -30,7 +30,7 @@ export function ComboModal({ menu, combo, onClose, onAdd }: Props) {
               <Text style={styles.h}>{KIND_LABEL[kind]}</Text>
               <View style={styles.wrap}>
                 {menu.items
-                  .filter((it) => it.kind === kind)
+                  .filter((it) => it.kind === kind && !it.sold_out)
                   .map((it) => (
                     <Chip
                       key={it.id}

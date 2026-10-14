@@ -81,6 +81,7 @@ export function openDb(path, { seed = true } = {}) {
     );
     CREATE INDEX IF NOT EXISTS idx_orders_pickup ON orders(pickup_date, pickup_time);
     CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders(phone);
+    CREATE INDEX IF NOT EXISTS idx_orders_loyalty ON orders(loyalty_id);
     CREATE TABLE IF NOT EXISTS ratings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,

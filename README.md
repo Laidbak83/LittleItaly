@@ -9,7 +9,13 @@ Application iOS / Android pour le restaurant Little Italy (Trans-en-Provence).
 
 ## Fonctions
 
-**Côté client (appli)**
+**Côté client (appli iOS / Android, et version web)**
+- **Commander sans rien installer** : la même commande fonctionne dans le navigateur (`/commande/`, QR code à imprimer depuis l'admin) ; paiement au retrait pour l'instant sur le web
+- **Précommande** jusqu'à N jours à l'avance (réglable), avec choix du jour
+- **Remises** affichées avec le **total exact calculé par le serveur** : pizza offerte (fidélité), **offre de bienvenue** sur la 1re commande, **offres heures creuses** sur certains créneaux, **parrainage** (code ami, tampons pour le parrain quand l'ami retire sa 1re commande)
+- **Bouton « J'arrive »** (dans 5 / 10 / 15 min, ou « je suis là ») : la cuisine cale la cuisson ; pour les pizzas à régler au retrait, elle peut n'être lancée qu'à ce moment-là (réglage)
+- **Suivi de commande visuel** (reçue → acceptée → prête → retirée) avec compte à rebours
+- **Infos pratiques** (adresse, appeler, itinéraire, horaires de retrait, fermetures), articles **épuisés aujourd'hui** grisés, filtre **allergènes à éviter**, lien pour laisser un **avis Google**, case **« Recevoir les offres »** (accord du client)
 - Carte avec photos, filtre 🌱 végétarien et **allergènes** affichés (quand ils sont renseignés)
 - **Pizzas personnalisables** : suppléments payants (1 €), ingrédients à retirer ; tailles et moitié-moitié en option
 - **Pizza Duo** à 14 € (demi-pizza au choix + salade chèvre / antipasti / chicken) et formules à prix fixe
@@ -27,6 +33,12 @@ Application iOS / Android pour le restaurant Little Italy (Trans-en-Provence).
 - **Notifications sur son téléphone** (écran installé, *Réglages*) : nouvelle commande, **commande en retard**, **bilan du soir** ; chaque type se coupe séparément
 - **Chronomètre de cuisine** : sur chaque commande « à lancer maintenant », « en préparation depuis X min », « en retard de X min », « prête depuis X min »
 - **Stats → Cuisine** : temps de préparation typique et « 8 fois sur 10 », selon le nombre de pizzas et selon l'heure, commandes prêtes à l'heure, attente au comptoir, **conseils chiffrés** (délai minimum conseillé, limite de pizzas par créneau) applicables en un clic
+- **Offres heures creuses** (remise sur des horaires et jours choisis), **offre de bienvenue**, **parrainage**, **fermetures exceptionnelles** (congés), **commandes à l'avance** et **paiement en ligne obligatoire au-delà d'un montant**, **« J'arrive »** (voir ci-dessus) : tout se règle dans *Réglages*
+- **« Épuisé aujourd'hui »** en un clic sur un article ou un supplément (revient seul le lendemain)
+- **Ticket de cuisine imprimé** (bouton 🖨 sur chaque commande, ou impression automatique des nouvelles commandes sur la tablette de la cuisine)
+- **À prévoir en cuisine** (onglet *Stats*) : pizzas attendues aujourd'hui, demain, après-demain, précommandes comprises, et nombre de pâtons à prévoir
+- **QR code et affiches** (*Réglages*) : affiche A4 et planche d'autocollants pour les boîtes à pizza
+- **Offres par notification** (onglet *Clients*) : aux seuls clients qui ont accepté, par segment (fidèles, à relancer, nouveaux), une offre tous les 3 jours au plus
 - **Fichier clients** (onglet *Clients*, un petit CRM) : recherche, tri, segments (fidèles, nouveaux, **à relancer**), historique et pizza préférée de chaque client, notes privées, export CSV
 - **Pizza de la semaine** (onglet *Réglages*) avec prix promo et date de fin
 - Message en haut de l'appli (pizza du moment, promo, congés…)
@@ -65,6 +77,15 @@ En mode `npm run dev`, les créneaux de retrait sont **ouverts 24h/24** pour pou
 ### Installer l'écran d'Olivier sur son téléphone
 Ouvrir `/admin` dans Chrome (Android) ou Safari (iPhone), puis *Ajouter à l'écran d'accueil* : il s'ouvre ensuite comme une application. Pour le consulter hors du restaurant, le serveur doit être en ligne (HTTPS). Le bip de nouvelle commande ne retentit que quand la page est ouverte ; pour être prévenu **même page fermée**, activer les notifications dans *Réglages* (à faire sur chaque appareil ; elles exigent HTTPS en production et, sur iPhone, l'écran ajouté à l'écran d'accueil, iOS 16.4 ou plus).
 
+### Version web de la commande (sans rien installer)
+```bash
+cd mobile
+npm run build:web      # compile la commande web dans backend/public/commande/
+```
+Puis ouvrir <http://localhost:3000/> (redirige vers `/commande/`). Dans `/admin` → *Réglages* → *QR code et affiches*, imprimer l'affiche ou les autocollants. À refaire après chaque modification de l'appli. En production, saisir l'adresse publique (https) dans la carte QR.
+
+**Impression automatique des tickets** : sur la tablette de la cuisine, cocher « Imprimer automatiquement… » ; pour supprimer la fenêtre d'impression, lancer Chrome avec `--kiosk-printing` (imprimante par défaut = imprimante de tickets).
+
 ### Scénario de test conseillé
 
 1. **Appli** : ouvrir une pizza (ex. Calzone), ajouter un supplément, retirer un ingrédient, l'ajouter ; commander un Pizza Duo ; aller au *Panier* ; accepter une suggestion (boisson/dessert) ; choisir un créneau, saisir prénom et téléphone ; **Envoyer la commande**.
@@ -81,6 +102,14 @@ Notes pour le test dans Expo Go :
 - **Au retrait** fonctionne directement. Le paiement **en ligne** demande des clés Stripe de test (voir `backend/.env.example`, carte de test `4242 4242 4242 4242`).
 - Les **notifications push aux clients** ne fonctionnent pas dans Expo Go sur Android (elles nécessitent un build de l'appli) ; le suivi de commande, lui, se met à jour tout seul dans l'appli. Les **notifications d'Olivier** (écran admin) se testent sur `localhost` dans Chrome : *Réglages → Activer sur cet appareil*.
 - Pour repartir de zéro : arrêter le backend et supprimer le dossier `backend/data/`.
+
+## Précisions sur les offres
+
+- **Bienvenue** : désactivée par défaut (`0 €`). « Première commande » = aucune commande valide avec la même carte de fidélité **ou** le même téléphone. Les remises ne se cumulent jamais au-delà du montant de la commande.
+- **Parrainage** : activé par défaut (3 tampons pour le parrain), désactivable (`0`). Le filleul profite de l'offre de bienvenue si elle est active.
+- **Heures creuses** : la meilleure offre applicable (jour, créneau, commande minimum) est retenue. Elle s'affiche sur les créneaux concernés.
+- **« J'arrive » et pizzas à régler au retrait** : réglage désactivé par défaut. Activé, la cuisine voit « en attente du J'arrive » et le client reçoit un rappel 15 min avant le retrait ; une commande ainsi en attente ne déclenche pas d'alerte de retard tant que le client n'a pas répondu.
+- **Offres par notification** : réservées aux clients ayant coché « Recevoir les offres » ; accord horodaté en base ; une offre tous les 3 jours maximum. Prévoir la mention correspondante dans la politique de confidentialité.
 
 ## La carte chargée (d'après la carte affichée au restaurant)
 

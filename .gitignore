@@ -1,2 +1,4 @@
 .DS_Store
 .env
+# Version web de la commande : fichiers générés (npm run build:web dans mobile/)
+backend/public/commande/

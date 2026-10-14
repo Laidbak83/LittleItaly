@@ -21,7 +21,14 @@
       "package": "fr.littleitaly.commande"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png",
+      "name": "Little Italy",
+      "shortName": "Little Italy",
+      "themeColor": "#C8102E",
+      "backgroundColor": "#FAF6F0",
+      "lang": "fr"
     },
     "scheme": "littleitaly",
     "plugins": [
@@ -33,6 +40,9 @@
           "enableGooglePay": true
         }
       ]
-    ]
+    ],
+    "experiments": {
+      "baseUrl": "/commande"
+    }
   }
 }

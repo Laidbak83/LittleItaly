@@ -12,6 +12,7 @@ let onOpen: (() => void) | null = null;
 function notifications(): NotificationsModule | null {
   if (cached !== undefined) return cached;
   cached = null;
+  if (Platform.OS === 'web') return cached; // pas de notifications dans le navigateur
   const inExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
   if (inExpoGo && Platform.OS === 'android') return cached;
   try {

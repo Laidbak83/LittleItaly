@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { showAlert } from './src/alert';
+import { InfoScreen } from './src/InfoScreen';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { initStripe } from '@stripe/stripe-react-native';
+import { initStripe } from './src/stripe';
 import { AppConfig, getConfig, getLoyalty, getMenu, getOrder, Loyalty, MenuData, Order } from './src/api';
 import { CartProvider, useCart } from './src/cart';
 import { CartScreen } from './src/CartScreen';
@@ -26,6 +28,10 @@ function Shell() {
   const [lastOrder, setLastOrder] = useState<Order | null>(null);
   const [loyaltyId, setLoyaltyId] = useState('');
   const [loyalty, setLoyalty] = useState<Loyalty | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
+  const reloadLoyalty = useCallback(() => {
+    if (loyaltyId) getLoyalty(loyaltyId).then(setLoyalty).catch(() => setLoyalty(null));
+  }, [loyaltyId]);
 
   const loadMenu = useCallback(async () => {
     try {
@@ -46,10 +52,16 @@ function Shell() {
     });
     getConfig()
       .then(async (c) => {
-        if (c.stripePublishableKey) await initStripe({ publishableKey: c.stripePublishableKey });
+        if (c.stripePublishableKey && Platform.OS !== 'web') await initStripe({ publishableKey: c.stripePublishableKey });
         setConfig(c);
       })
-      .catch(() => setConfig({ onlinePaymentEnabled: false, stripePublishableKey: null, ordersOpen: true, rewardTarget: 10 }));
+      .catch(() =>
+        setConfig({
+          onlinePaymentEnabled: false, stripePublishableKey: null, ordersOpen: true, rewardTarget: 10,
+          info: { address: '', phone: '', mapsUrl: '', reviewUrl: '' }, hours: {}, closures: [], maxAdvanceDays: 0,
+          referral: null, welcome: null, holdUnpaid: false, prepayOverCents: 0,
+        }),
+      );
   }, [loadMenu]);
 
   // Ouvert / fermé et capacité peuvent changer en cours de service : on relit la config à chaque changement d'onglet.
@@ -58,18 +70,15 @@ function Shell() {
   }, [tab]);
 
   // La carte de fidélité se met à jour quand on change d'onglet (après un retrait, par exemple).
-  useEffect(() => {
-    if (loyaltyId) getLoyalty(loyaltyId).then(setLoyalty).catch(() => setLoyalty(null));
-  }, [loyaltyId, tab, orderId]);
+  useEffect(reloadLoyalty, [reloadLoyalty, tab, orderId]);
 
   const reorder = (order: Order) => {
-    if (!menu) return Alert.alert('Un instant', 'La carte est en cours de chargement.');
+    if (!menu) return showAlert('Un instant', 'La carte est en cours de chargement.');
     const lines = order.items.map((i) => lineFromConfig(menu, i.config));
     const found = lines.filter((l) => l !== null);
     found.forEach(cart.addLine);
-    if (found.length === 0) return Alert.alert('Désolé', "Ces articles ne sont plus disponibles.");
-    if (found.length < lines.length)
-      Alert.alert('Panier mis à jour', 'Certains articles ne sont plus disponibles et ont été ignorés.');
+    if (found.length === 0) return showAlert('Désolé', 'Ces articles ne sont plus disponibles.');
+    if (found.length < lines.length) showAlert('Panier mis à jour', 'Certains articles ne sont plus disponibles et ont été ignorés.');
     setTab('cart');
   };
 
@@ -84,12 +93,18 @@ function Shell() {
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
       <StatusBar style="light" />
       <View style={styles.header}>
-        <Text style={styles.logo}>🍕 Little Italy</Text>
-        <Text style={styles.tag}>Pizzas à emporter · Trans-en-Provence</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.logo}>🍕 Little Italy</Text>
+          <Text style={styles.tag}>Pizzas à emporter · Trans-en-Provence</Text>
+        </View>
+        <Pressable onPress={() => setShowInfo(true)} accessibilityLabel="Infos pratiques" hitSlop={10} style={styles.infoBtn}>
+          <Text style={styles.infoText}>ℹ️</Text>
+        </Pressable>
       </View>
+      {showInfo && <InfoScreen config={config} onClose={() => setShowInfo(false)} />}
       <View style={{ flex: 1 }}>
         {tab === 'menu' && (
-          <MenuScreen menu={menu} error={menuError} config={config} lastOrder={lastOrder} onReload={loadMenu} onReorder={reorder} onRate={() => setTab('order')} />
+          <MenuScreen menu={menu} error={menuError} config={config} loyalty={loyalty} lastOrder={lastOrder} onReload={loadMenu} onReorder={reorder} onRate={() => setTab('order')} />
         )}
         {tab === 'cart' && (
           <CartScreen
@@ -104,8 +119,8 @@ function Shell() {
             }}
           />
         )}
-        {tab === 'loyalty' && <LoyaltyScreen loyalty={loyalty} />}
-        {tab === 'order' && <OrderScreen orderId={orderId} onReorder={reorder} onOrderChange={setLastOrder} />}
+        {tab === 'loyalty' && <LoyaltyScreen loyalty={loyalty} loyaltyId={loyaltyId} onChanged={reloadLoyalty} />}
+        {tab === 'order' && <OrderScreen orderId={orderId} config={config} onReorder={reorder} onOrderChange={setLastOrder} />}
       </View>
       <View style={styles.tabs}>
         {tabs.map((t) => (
@@ -130,7 +145,9 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  header: { backgroundColor: colors.red, paddingHorizontal: 16, paddingVertical: 12 },
+  header: { backgroundColor: colors.red, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center' },
+  infoBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#ffffff33', alignItems: 'center', justifyContent: 'center' },
+  infoText: { fontSize: 18 },
   logo: { color: '#fff', fontSize: 22, fontWeight: '800' },
   tag: { color: '#ffffffcc', fontSize: 13 },
   tabs: { flexDirection: 'row', borderTopWidth: 1, borderColor: colors.line, backgroundColor: colors.card },

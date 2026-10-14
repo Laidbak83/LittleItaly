@@ -18,6 +18,9 @@ Comme convenu, voici la première version de l'application **Little Italy** pour
 - **La pizza de la semaine**, mise en avant en haut de la carte (avec un prix promo si vous le souhaitez)
 - **Les plus commandées** (best-sellers) et **la note des pizzas**, données par les clients après le retrait
 - **« Commander à nouveau »** en un seul geste
+- **Commander sans installer l'appli** : un QR code sur les boîtes et au comptoir ouvre la commande dans le navigateur
+- **Commander pour plus tard** (demain, vendredi soir…) et **un bouton « J'arrive »** pour que votre pizza soit chaude à l'arrivée du client
+- **Des offres qui font revenir les clients** : remise de bienvenue, remises sur les heures calmes, parrainage d'un ami (vous décidez de tout dans les réglages)
 
 ### Ce que vous voyez en cuisine (voir l'image « cuisine-commandes »)
 - Un écran (tablette, téléphone ou ordinateur) avec les commandes **classées par heure de retrait**, le détail des pizzas, les remarques du client, le montant et « payé » ou « à encaisser »
@@ -34,7 +37,9 @@ Comme convenu, voici la première version de l'application **Little Italy** pour
 - **Chiffre d'affaires, nombre de commandes, panier moyen, pizzas vendues**, avec la comparaison à la période précédente
 - **Courbes** : chiffre d'affaires par jour, heures de pointe, jours les plus chargés
 - **Les pizzas les plus vendues et les mieux notées**, et les avis laissés par les clients
-- **Un fichier clients** : historique de commandes, pizza préférée, clients « à relancer », notes privées (allergies, habitudes), export Excel
+- **Un fichier clients** : historique de commandes, pizza préférée, clients « à relancer », notes privées (allergies, habitudes), export Excel, et la possibilité d'envoyer une **offre par notification** aux clients qui l'ont acceptée
+- **« À prévoir en cuisine »** : combien de pizzas attendre demain, donc combien de pâtons préparer
+- **Un bouton « Épuisé aujourd'hui »**, **un ticket de cuisine imprimé**, **vos congés** et **des affiches / autocollants avec QR code** à imprimer
 - **Des notifications sur votre téléphone** : à chaque nouvelle commande, quand une commande est en retard, et un petit bilan en fin de journée (chaque type se coupe séparément)
 - Il s'installe sur l'écran d'accueil du téléphone comme une application. Pour le consulter hors du restaurant, le serveur doit être en ligne, ce qui sera le cas à la mise en production.
 
@@ -53,7 +58,7 @@ Ces chiffres sont justes si l'on appuie sur les boutons au bon moment : c'est la
 4. **Votre logo** et **quelques belles photos de vos pizzas**, pour que l'appli et les affiches soient à votre image.
 
 ### Points à trancher ensemble
-- **Si un client choisit « payer au retrait » et ne vient pas ?** Quelques pistes simples : un statut « non retirée » ; au bout de deux oublis, ce client devra payer en ligne ; un signal rouge en cuisine quand une commande attend depuis trop longtemps ; le paiement en ligne obligatoire au-delà d'un certain montant. Qu'est-ce qui vous semble raisonnable ?
+- **Si un client choisit « payer au retrait » et ne vient pas ?** Deux protections sont prêtes : le bouton **« J'arrive »** (la pizza n'est lancée que quand le client nous prévient) et le **paiement en ligne obligatoire au-delà d'un montant** que vous fixez. D'autres pistes possibles : un statut « non retirée » puis, après deux oublis, le paiement en ligne imposé à ce client. Qu'est-ce qui vous semble raisonnable ?
 - **Un compte client ?** Pour l'instant, pas besoin de compte : le client commande en quelques secondes et sa carte de fidélité reste sur son téléphone. Plus tard, on pourra proposer un compte facultatif (avec le numéro de téléphone) pour retrouver sa fidélité sur un nouveau téléphone.
 - **Vendre aussi des plats à emporter** (lasagne, pâtes, salades) ? Je les ai déjà saisis, masqués pour l'instant. Pour les pâtes (choix de la sauce) ou la viande (cuisson, accompagnement), il faudra ajouter des options : c'est faisable dans un second temps.
 - **Le paiement en ligne** : souhaitez-vous le proposer dès le début ? Cela demande un compte Stripe au nom du restaurant et une petite commission sur chaque paiement en ligne.

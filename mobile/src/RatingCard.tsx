@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { showAlert } from './alert';
 import { Order, rateOrder } from './api';
 import { colors } from './theme';
 import { Stars } from './ui';
 
 // « Comment était votre pizza ? » : visible une fois la commande retirée.
-export function RatingCard({ order, onDone }: { order: Order; onDone: () => void }) {
+export function RatingCard({ order, reviewUrl, onDone }: { order: Order; reviewUrl?: string; onDone: () => void }) {
   const [draft, setDraft] = useState<Record<number, number>>({});
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
@@ -22,7 +23,7 @@ export function RatingCard({ order, onDone }: { order: Order; onDone: () => void
       await rateOrder(order.id, picked, comment);
       onDone();
     } catch (e) {
-      Alert.alert('Erreur', (e as Error).message);
+      showAlert('Erreur', (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -41,6 +42,12 @@ export function RatingCard({ order, onDone }: { order: Order; onDone: () => void
           )}
         </View>
       ))}
+      {/* Invité à laisser un avis Google quelle que soit sa note (Google interdit de ne solliciter que les bons avis). */}
+      {reviewUrl ? (
+        <Pressable onPress={() => Linking.openURL(reviewUrl)}>
+          <Text style={styles.google}>⭐ Laisser aussi un avis sur Google</Text>
+        </Pressable>
+      ) : null}
       {todo.length > 0 && (
         <>
           <TextInput
@@ -66,6 +73,7 @@ const styles = StyleSheet.create({
   row: { paddingVertical: 8 },
   name: { fontWeight: '600', marginBottom: 4, color: colors.ink },
   input: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 10, marginTop: 8, minHeight: 60, fontSize: 15 },
+  google: { color: colors.red, fontWeight: '700', marginTop: 8 },
   btn: { backgroundColor: colors.red, borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 10 },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });
