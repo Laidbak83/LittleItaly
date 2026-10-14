@@ -8,6 +8,8 @@ export function loadConfig(env = process.env) {
     stripeSecretKey: env.STRIPE_SECRET_KEY ?? '',
     stripePublishableKey: env.STRIPE_PUBLISHABLE_KEY ?? '',
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET ?? '',
+    // Identifiant de contact exigé par les notifications web (mailto: ou https:). À remplacer par une vraie adresse.
+    vapidSubject: env.VAPID_SUBJECT ?? 'mailto:admin@example.com',
     timezone: 'Europe/Paris',
     slotMinutes: 15,
     leadMinutes: 20, // délai minimum de préparation

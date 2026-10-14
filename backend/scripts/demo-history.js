@@ -6,7 +6,7 @@ import { openDb } from '../src/db.js';
 import { priceLine } from '../src/pricing.js';
 import { addStamps } from '../src/loyalty.js';
 import { addDays } from '../src/stats.js';
-import { localNow } from '../src/time.js';
+import { localNow, localToDate } from '../src/time.js';
 
 const config = loadConfig();
 const db = openDb(config.dbPath);
@@ -44,8 +44,9 @@ const today = localNow(config.timezone).date;
 const loyaltyIds = new Set();
 let total = 0;
 const insertOrder = db.prepare(`INSERT INTO orders (id, number, customer_name, phone, note, pickup_date, pickup_time, payment_method, payment_status,
-  status, total_cents, discount_cents, pizza_count, loyalty_id, reward_used, stamps_credited, feedback, created_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,0,?,?,?)`);
+  status, total_cents, discount_cents, pizza_count, loyalty_id, reward_used, stamps_credited, feedback, created_at,
+  preparing_at, ready_at, done_at, notified_soon, notified_waiting, notified_rate, notified_late)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,0,?,?,?,?,?,?,1,1,1,1)`);
 const insertLine = db.prepare('INSERT INTO order_items (order_id, name, details, quantity, unit_price_cents, config) VALUES (?,?,?,?,?,?)');
 const insertRating = db.prepare('INSERT OR IGNORE INTO ratings (order_id, item_id, rating, created_at) VALUES (?,?,?,?)');
 
@@ -84,8 +85,17 @@ for (let back = 44; back >= 0; back--) {
     const id = `demo-${date}-${n}`;
     const created = `${date}T${String(Math.max(hour - 2, 0)).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000Z`;
     const comment = status === 'done' && rnd() < 0.12 ? pick(COMMENTS) : null;
+    // Chronométrage réaliste : la cuisine démarre ~12-18 min avant le retrait ; coup de feu aux heures de pointe.
+    const pickupAt = localToDate(config.timezone, date, pickupTime).getTime();
+    const rush = [12, 13, 19, 20].includes(hour) ? 1.35 : 1;
+    const prepMin = (5 + 2.4 * pizzaCount) * rush * (0.85 + rnd() * 0.3);
+    const start = pickupAt - (12 + rnd() * 6) * 60000;
+    const ready = start + prepMin * 60000;
+    const times = { new: [null, null, null], preparing: [new Date(Date.now() - 4 * 60000), null, null],
+      ready: [new Date(Date.now() - 12 * 60000), new Date(Date.now() - 3 * 60000), null],
+      done: [new Date(start), new Date(ready), new Date(ready + rnd() * 14 * 60000)] }[status].map((d) => (d ? d.toISOString() : null));
     insertOrder.run(id, n, c.name, c.phone, '', date, pickupTime, online ? 'online' : 'on_pickup', online ? 'paid' : 'unpaid',
-      status, totalCents, pizzaCount, c.loyaltyId, status === 'done' ? 1 : 0, comment, created);
+      status, totalCents, pizzaCount, c.loyaltyId, status === 'done' ? 1 : 0, comment, created, ...times);
     for (const l of priced) insertLine.run(id, l.name, l.details, l.quantity, l.unitCents, JSON.stringify(l.config));
     if (status === 'done') {
       addStamps(db, c.loyaltyId, pizzaCount);

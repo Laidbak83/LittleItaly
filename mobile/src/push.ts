@@ -8,6 +8,7 @@ type NotificationsModule = typeof import('expo-notifications');
 // simple fait de CHARGER `expo-notifications` y lève une erreur qui bloque toute l'appli.
 // On ne charge donc le module que dans une vraie appli (build) ou sur iOS, et jamais en import statique.
 let cached: NotificationsModule | null | undefined;
+let onOpen: (() => void) | null = null;
 function notifications(): NotificationsModule | null {
   if (cached !== undefined) return cached;
   cached = null;
@@ -23,6 +24,8 @@ function notifications(): NotificationsModule | null {
         shouldSetBadge: false,
       }),
     });
+    // Toucher une notification (appli ouverte ou en arrière-plan) ouvre le suivi de commande.
+    N.addNotificationResponseReceivedListener(() => onOpen?.());
     cached = N;
   } catch {
     cached = null;
@@ -30,9 +33,19 @@ function notifications(): NotificationsModule | null {
   return cached;
 }
 
-// À appeler au démarrage : permet d'afficher une notification reçue pendant que l'appli est ouverte.
-export function initPush() {
-  notifications();
+// À appeler au démarrage : affiche les notifications reçues appli ouverte, et ouvre le suivi quand on en touche une
+// (y compris quand c'est la notification qui a lancé l'appli).
+export function initPush(openOrder: () => void) {
+  onOpen = openOrder;
+  const N = notifications();
+  try {
+    if (N?.getLastNotificationResponse()) {
+      openOrder();
+      N.clearLastNotificationResponse();
+    }
+  } catch {
+    // jamais bloquant
+  }
 }
 
 // Renvoie le jeton push, ou null si indisponible (simulateur, refus, Expo Go Android…).

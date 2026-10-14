@@ -85,6 +85,10 @@
   textarea { width:100%; }
   #tip { position:fixed; z-index:50; background:#222; color:#fff; padding:6px 10px; border-radius:8px; font-size:13px; pointer-events:none; max-width:280px; }
   .stripe { margin-bottom:12px; }
+  .insights { margin:6px 0; padding-left:20px; } .insights li { margin:6px 0; }
+  .timer { margin:4px 0 0; font-size:14px; min-height:0; }
+  .tag.bad { background:#fde8e8; border-color:#f0b4b4; color:#9b1c1c; font-weight:600; }
+  .tag.go { background:#fff3cd; border-color:#f0d98a; font-weight:600; }
   @media (max-width: 560px) {
     .tiles { grid-template-columns:repeat(2,1fr); gap:8px; }
     .tile { padding:10px; } .tvalue { font-size:22px; } .tsub { font-size:12px; }
@@ -156,6 +160,7 @@ function orderCard(o) {
       <span class="grow"><b>#${o.number}</b> ${esc(o.customer_name)} · <a href="tel:${esc(o.phone)}">${esc(o.phone)}</a></span>
       ${o.reward_used ? '<span class="tag">🎁 pizza offerte</span>' : ''}
       <span class="badge ${o.status}">${STATUS_LABEL[o.status]}</span></div>
+    <div class="timer">${timerLine(o)}</div>
     <ul>${o.items.map((i) => `<li><b>${i.quantity} × ${esc(i.name)}</b>${i.details ? `<br><small>${esc(i.details)}</small>` : ''}</li>`).join('')}</ul>
     ${o.note ? `<p class="muted">📝 ${esc(o.note)}</p>` : ''}
     <div class="row"><b class="grow">${euro(o.total_cents)}${o.discount_cents ? ` (dont ${euro(o.discount_cents)} offerts)` : ''} — ${pay}</b>
@@ -163,7 +168,29 @@ function orderCard(o) {
       ${['new','preparing'].includes(o.status) ? `<button class="act red" data-id="${o.id}" data-status="cancelled">Annuler</button>` : ''}
     </div></div>`;
 }
-let todayStrip = '', todayAt = 0;
+let todayStrip = '', todayAt = 0, serverSkew = 0, typicalPrep = 12;
+// Ligne de chronomètre d'une commande : à lancer, en préparation depuis…, en retard, prête depuis…
+function timerLine(o) {
+  const nowMs = Date.now() - serverSkew, pickup = Date.parse(o.pickup_at);
+  const min = (ms) => Math.round(ms / 60000);
+  if (o.status === 'new') {
+    const late = min(nowMs - pickup);
+    if (late > 2) return `<span class="tag bad">⏰ En retard de ${late} min</span>`;
+    const startIn = min(pickup - typicalPrep * 60000 - nowMs);
+    if (startIn <= 0) return '<span class="tag go">🔥 À lancer maintenant</span>';
+    if (startIn <= 90) return `<span class="muted">À lancer dans ${startIn} min</span>`;
+  }
+  if (o.status === 'preparing' && o.preparing_at) {
+    const m = min(nowMs - Date.parse(o.preparing_at)), late = min(nowMs - pickup);
+    if (late > 2) return `<span class="tag bad">⏰ En retard de ${late} min · en préparation depuis ${m} min</span>`;
+    return `<span class="${m > typicalPrep * 1.5 ? 'tag go' : 'muted'}">⏱ En préparation depuis ${m} min</span>`;
+  }
+  if (o.status === 'ready' && o.ready_at) {
+    const m = min(nowMs - Date.parse(o.ready_at));
+    return `<span class="${m > 15 ? 'tag go' : 'muted'}">✅ Prête depuis ${m} min${m > 15 ? ' · le client tarde' : ''}</span>`;
+  }
+  return '';
+}
 async function loadOrders() {
   if (Date.now() - todayAt > 60000) {
     todayAt = Date.now();
@@ -173,7 +200,9 @@ async function loadOrders() {
       const el = document.querySelector('#orders .stripe'); if (el) el.outerHTML = todayStrip;
     }).catch(() => {});
   }
-  const { orders } = await api('/orders');
+  const { orders, now: serverNow, typical_prep_minutes } = await api('/orders');
+  serverSkew = Date.now() - Date.parse(serverNow);
+  typicalPrep = typical_prep_minutes ?? 12;
   const fresh = orders.filter((o) => o.status === 'new' && !knownIds.has(o.id));
   if (fresh.length && !first) beep();
   orders.forEach((o) => knownIds.add(o.id)); first = false;
@@ -189,6 +218,21 @@ async function loadSettings() {
   const [s, { items }] = await Promise.all([api('/settings'), api('/menu')]);
   const pizzas = items.filter((i) => i.kind === 'pizza' && i.available);
   $('#settings').innerHTML = `
+    <div class="card" id="pushCard">
+      <b>🔔 Notifications sur ce téléphone</b>
+      <div class="muted" id="pushState">Vérification…</div>
+      <p class="row"><button class="act" id="pushOn" hidden>Activer sur cet appareil</button><button class="act sm" id="pushTest" hidden>Envoyer un test</button><button class="act red sm" id="pushOff" hidden>Désactiver</button></p>
+      <div><label><input type="checkbox" id="nNew" ${s.ownerNotify.newOrder ? 'checked' : ''}> Nouvelle commande</label></div>
+      <div><label><input type="checkbox" id="nLate" ${s.ownerNotify.late ? 'checked' : ''}> Commande en retard (5 min après l'heure de retrait)</label></div>
+      <div><label><input type="checkbox" id="nSum" ${s.ownerNotify.summary ? 'checked' : ''}> Bilan du soir (10 min après la fermeture)</label></div>
+      <div class="muted" style="margin-top:8px">À activer sur chaque appareil (téléphone, tablette de la cuisine). iPhone : ajoutez d'abord cette page à l'écran d'accueil (iOS 16.4 ou plus). Android : autorisez les notifications quand le navigateur le demande.</div>
+    </div>
+    <div class="card">
+      <b>⏱ Délai de préparation minimum</b>
+      <div class="muted">Le client ne peut pas choisir un retrait plus proche que ce délai (le mode « rush » s'y ajoute). Par défaut : ${s.defaultLeadMinutes} min. Voir les conseils dans Stats → Cuisine.</div>
+      <p class="row"><input id="leadMin" type="number" min="5" max="90" style="width:90px" value="${s.leadMinutes ?? s.defaultLeadMinutes}"> min
+        <button class="act sm" id="leadSave">Enregistrer</button><button class="act red sm" id="leadReset">Valeur par défaut</button><span class="saved" id="leadOk"></span></p>
+    </div>
     <div class="card">
       <b>⭐ Pizza de la semaine</b>
       <div class="muted">Mise en avant en haut de la carte de l'appli, avec un prix promo si vous le souhaitez.</div>
@@ -199,9 +243,7 @@ async function loadSettings() {
         <label class="f grow">Jusqu'au (inclus, facultatif)<input id="fUntil" type="date" value="${s.featuredUntil ?? ''}"></label></div>
       <label class="f">Petit texte (facultatif)<input id="fNote" maxlength="100" value="${esc(s.featuredNote)}" placeholder="Ex : Nouvelle recette du chef !"></label>
       <p class="row"><button class="act" id="fSave">Enregistrer</button><span class="saved" id="fOk"></span></p>
-    </div>
-    <div class="card">
-      <label class="f">Plus rien à afficher ? Choisissez « Aucune » ci-dessus puis Enregistrer. Une pizza de la semaine s'arrête aussi toute seule après sa date de fin.</label>
+      <div class="muted">Pour l'arrêter : choisissez « Aucune » puis Enregistrer. Elle s'arrête aussi toute seule après sa date de fin.</div>
     </div>
     ` + `
     <div class="card">
@@ -218,6 +260,18 @@ async function loadSettings() {
         <input id="sBanner" maxlength="140" value="${esc(s.banner)}" placeholder="Ex : 🔥 Pizza du moment : Diavola à 11 € !"></label>
       <p class="row"><button class="act" id="sSave">Enregistrer</button><span class="saved" id="sOk"></span></p>
     </div>`;
+  $('#leadSave').onclick = safe(async () => {
+    await api('/settings', { method: 'PUT', body: { leadMinutes: Number($('#leadMin').value) } });
+    $('#leadOk').textContent = '✓ Enregistré';
+  });
+  $('#leadReset').onclick = safe(async () => {
+    await api('/settings', { method: 'PUT', body: { leadMinutes: null } });
+    $('#leadMin').value = s.defaultLeadMinutes; $('#leadOk').textContent = '✓ Valeur par défaut rétablie';
+  });
+  for (const [id, key] of [['nNew', 'notifyNew'], ['nLate', 'notifyLate'], ['nSum', 'notifySummary']]) {
+    $('#' + id).onchange = safe(async (e) => { await api('/settings', { method: 'PUT', body: { [key]: e.target.checked } }); });
+  }
+  setupPushControls();
   $('#fSave').onclick = safe(async () => {
     const id = $('#fItem').value;
     const priceTxt = $('#fPrice').value.trim();
@@ -359,6 +413,47 @@ async function loadMenu() {
       await api('/combos/' + el.dataset.combo, { method: 'PATCH', body: { name: val(el, 'name'), description: val(el, 'description'), priceCents, slots, available: val(el, 'available') } }); loadMenu();
     });
   });
+}
+
+/* ---------- Notifications du patron (Web Push) ---------- */
+const urlB64ToUint8Array = (b64) => {
+  const raw = atob((b64 + '='.repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+};
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const swReg = () => navigator.serviceWorker.getRegistration('/admin');
+
+async function refreshPushUI() {
+  const state = $('#pushState'); if (!state) return;
+  const on = $('#pushOn'), test = $('#pushTest'), off = $('#pushOff');
+  on.hidden = test.hidden = off.hidden = true;
+  if (!pushSupported()) { state.textContent = "Non disponible sur ce navigateur. Sur iPhone, ouvrez cette page depuis l'écran d'accueil (Partager → Sur l'écran d'accueil)."; return; }
+  const reg = await swReg();
+  if (!reg) { state.textContent = 'Préparation en cours… rechargez la page dans quelques secondes.'; return; }
+  if (Notification.permission === 'denied') { state.textContent = 'Notifications bloquées : autorisez-les pour ce site dans les réglages du navigateur.'; return; }
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) { state.textContent = '✅ Activées sur cet appareil.'; test.hidden = off.hidden = false; }
+  else { state.textContent = "Pas encore activées sur cet appareil."; on.hidden = false; }
+}
+
+function setupPushControls() {
+  $('#pushOn').onclick = safe(async () => {
+    if (await Notification.requestPermission() !== 'granted') throw new Error('Notifications refusées : autorisez-les dans les réglages du navigateur.');
+    const { publicKey } = await api('/push/key');
+    const sub = await (await swReg()).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(publicKey) });
+    await api('/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });
+    await refreshPushUI();
+  });
+  $('#pushTest').onclick = safe(async () => {
+    const { sent } = await api('/push/test', { method: 'POST' });
+    $('#pushState').textContent = sent ? '✅ Notification de test envoyée.' : "Aucun appareil n'a reçu le test : réessayez de l'activer.";
+  });
+  $('#pushOff').onclick = safe(async () => {
+    const sub = await (await swReg()).pushManager.getSubscription();
+    if (sub) { await api('/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }); await sub.unsubscribe(); }
+    await refreshPushUI();
+  });
+  refreshPushUI().catch(() => {});
 }
 
 /* ---------- Navigation ---------- */

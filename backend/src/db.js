@@ -90,6 +90,12 @@ export function openDb(path, { seed = true } = {}) {
       UNIQUE (order_id, item_id)
     );
     CREATE INDEX IF NOT EXISTS idx_ratings_item ON ratings(item_id);
+    CREATE TABLE IF NOT EXISTS owner_subscriptions (
+      endpoint TEXT PRIMARY KEY,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS customer_notes (
       phone TEXT PRIMARY KEY,
       note TEXT NOT NULL DEFAULT ''
@@ -97,6 +103,11 @@ export function openDb(path, { seed = true } = {}) {
   `);
   // Bases créées avant l'ajout des avis : on complète sans rien perdre.
   ensureColumn(db, 'orders', 'feedback', 'TEXT');
+  // Chronométrage de la cuisine (quand chaque étape a été déclenchée) et notifications déjà envoyées.
+  for (const col of ['preparing_at', 'ready_at', 'done_at']) ensureColumn(db, 'orders', col, 'TEXT');
+  for (const col of ['notified_soon', 'notified_waiting', 'notified_rate', 'notified_late']) {
+    ensureColumn(db, 'orders', col, 'INTEGER NOT NULL DEFAULT 0');
+  }
   if (seed && db.prepare('SELECT COUNT(*) AS n FROM menu_items').get().n === 0) seedMenu(db);
   return db;
 }

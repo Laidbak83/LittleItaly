@@ -1,6 +1,7 @@
 // Réglages que le patron change en direct (bouton « fermer », rush, capacité du four…).
 const DEFAULTS = { orders_open: '1', rush_minutes: '0', max_pizzas_per_slot: '8', banner: '', half_and_half: '0',
-  featured_item_id: '', featured_price_cents: '', featured_note: '', featured_until: '' };
+  featured_item_id: '', featured_price_cents: '', featured_note: '', featured_until: '',
+  lead_minutes: '', notify_new: '1', notify_late: '1', notify_summary: '1' };
 
 export function readSettings(db) {
   const rows = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((r) => [r.key, r.value]));
@@ -15,6 +16,8 @@ export function readSettings(db) {
     featuredPriceCents: v.featured_price_cents === '' ? null : Number(v.featured_price_cents),
     featuredNote: v.featured_note,
     featuredUntil: v.featured_until || null,
+    leadMinutes: v.lead_minutes === '' ? null : Number(v.lead_minutes), // délai minimum de préparation (null = valeur par défaut)
+    ownerNotify: { newOrder: v.notify_new === '1', late: v.notify_late === '1', summary: v.notify_summary === '1' },
   };
 }
 
@@ -23,6 +26,17 @@ export function writeSettings(db, input) {
   const entries = [];
   if (input.ordersOpen !== undefined) entries.push(['orders_open', input.ordersOpen ? '1' : '0']);
   if (input.halfAndHalf !== undefined) entries.push(['half_and_half', input.halfAndHalf ? '1' : '0']);
+  if (input.leadMinutes !== undefined) {
+    if (input.leadMinutes === null) entries.push(['lead_minutes', '']);
+    else {
+      const n = Number(input.leadMinutes);
+      if (!Number.isInteger(n) || n < 5 || n > 90) return 'Délai de préparation invalide (5 à 90 min)';
+      entries.push(['lead_minutes', String(n)]);
+    }
+  }
+  for (const [key, col] of [['notifyNew', 'notify_new'], ['notifyLate', 'notify_late'], ['notifySummary', 'notify_summary']]) {
+    if (input[key] !== undefined) entries.push([col, input[key] ? '1' : '0']);
+  }
   if (input.rushMinutes !== undefined) {
     const n = Number(input.rushMinutes);
     if (!Number.isInteger(n) || n < 0 || n > 90) return 'Délai supplémentaire invalide (0 à 90 min)';

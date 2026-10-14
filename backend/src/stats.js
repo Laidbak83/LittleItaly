@@ -1,18 +1,13 @@
 // Statistiques et fichier clients pour le patron. Tout est calculé à la demande depuis les commandes :
 // « valide » = ni annulée, ni en attente de paiement en ligne.
-import { localNow } from './time.js';
+import { addDays, daysBetween, localNow } from './time.js';
+export { addDays };
 
 const VALID = "status NOT IN ('cancelled','pending_payment')";
 const IN_PROGRESS = "status IN ('new','preparing','ready')";
 const round1 = (x) => Math.round(x * 10) / 10;
 
-export const addDays = (date, n) => {
-  const d = new Date(`${date}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-};
 const weekdayOf = (date) => new Date(`${date}T12:00:00Z`).getUTCDay();
-const daysBetween = (a, b) => Math.round((new Date(`${b}T12:00:00Z`) - new Date(`${a}T12:00:00Z`)) / 86400000);
 
 // Décompose une ligne de commande en ventes par article.
 // Formule : chaque élément compte pour popularité, sans répartir son prix. Moitié-moitié : ½ pour chacune.

@@ -1,6 +1,6 @@
 **Objet : Little Italy – votre appli de commande de pizzas à emporter (première version)**
 
-*Pièces jointes : apercu-appli.png, cuisine-commandes.png, dashboard-olivier.png*
+*Pièces jointes : apercu-appli.png, cuisine-commandes.png, dashboard-olivier.png, stats-cuisine.png*
 
 Bonjour Olivier,
 
@@ -13,7 +13,7 @@ Comme convenu, voici la première version de l'application **Little Italy** pour
 - **La personnalisation** : suppléments à 1 €, ingrédients à retirer
 - **Le choix de l'heure de retrait**, selon vos horaires
 - **Le paiement en ligne ou au retrait**
-- **Le suivi de la commande** : reçue, en préparation, prête (avec une notification quand elle est prête)
+- **Le suivi de la commande** : reçue, acceptée, en préparation, prête, avec des **notifications sur son téléphone** à chaque étape (« commande acceptée », « bientôt prête », « prête », et un rappel si la pizza n'est pas retirée)
 - **Une carte de fidélité** : 10 pizzas retirées = la suivante offerte
 - **La pizza de la semaine**, mise en avant en haut de la carte (avec un prix promo si vous le souhaitez)
 - **Les plus commandées** (best-sellers) et **la note des pizzas**, données par les clients après le retrait
@@ -21,7 +21,7 @@ Comme convenu, voici la première version de l'application **Little Italy** pour
 
 ### Ce que vous voyez en cuisine (voir l'image « cuisine-commandes »)
 - Un écran (tablette, téléphone ou ordinateur) avec les commandes **classées par heure de retrait**, le détail des pizzas, les remarques du client, le montant et « payé » ou « à encaisser »
-- Un **bip à chaque nouvelle commande**
+- Un **bip à chaque nouvelle commande**, et sur chaque commande un **chronomètre** : « à lancer maintenant », « en préparation depuis 6 min », « en retard de 4 min », « prête depuis 8 min »
 - Trois boutons : **Préparer, Prête, Retirée**. Le client est prévenu automatiquement.
 - Vous gardez la main, sans développeur :
   - un bouton **Ouvert / Fermé** pour couper les commandes quand vous êtes débordé ou fermé ;
@@ -35,7 +35,16 @@ Comme convenu, voici la première version de l'application **Little Italy** pour
 - **Courbes** : chiffre d'affaires par jour, heures de pointe, jours les plus chargés
 - **Les pizzas les plus vendues et les mieux notées**, et les avis laissés par les clients
 - **Un fichier clients** : historique de commandes, pizza préférée, clients « à relancer », notes privées (allergies, habitudes), export Excel
+- **Des notifications sur votre téléphone** : à chaque nouvelle commande, quand une commande est en retard, et un petit bilan en fin de journée (chaque type se coupe séparément)
 - Il s'installe sur l'écran d'accueil du téléphone comme une application. Pour le consulter hors du restaurant, le serveur doit être en ligne, ce qui sera le cas à la mise en production.
+
+### Combien de temps prend une pizza ? (voir l'image « stats-cuisine », chiffres de démonstration)
+En appuyant sur « Préparer » puis « Prête », vous chronométrez sans effort votre cuisine. L'écran **Stats → Cuisine** en tire :
+- le **temps de préparation typique** (par exemple 11 min) et « 8 fois sur 10 en moins de 15 min » ;
+- le temps **selon le nombre de pizzas** et **selon l'heure** : on voit où le coup de feu ralentit ;
+- le pourcentage de commandes **prêtes à l'heure** du retrait, et combien de temps elles **attendent au comptoir** ;
+- des **conseils chiffrés**, par exemple « vous pouvez proposer des retraits plus tôt », ou « limitez à 4 pizzas par créneau de 15 minutes aux heures de pointe », applicables en un clic.
+Ces chiffres sont justes si l'on appuie sur les boutons au bon moment : c'est la seule habitude à prendre en cuisine.
 
 ### Ce dont j'ai besoin de vous
 1. **Valider la carte.** J'ai repris celle affichée au restaurant (prix, descriptions). Merci de relire, et de me dire si la liste des suppléments à 1 € vous convient.

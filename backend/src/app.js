@@ -8,8 +8,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Stripe from 'stripe';
-import { availableSlots, localNow } from './time.js';
-import { sendPush } from './push.js';
+import { availableSlots, localNow, localToDate } from './time.js';
+import { createNotifier } from './notifier.js';
+import { computeKitchen, typicalPrepMinutes } from './kitchen.js';
 import { OrderError, priceLine, shapeItem } from './pricing.js';
 import { activeFeatured, readSettings, writeSettings } from './settings.js';
 import { bestSellers, computeStats, customerDetail, listCustomers, ratingsByItem } from './stats.js';
@@ -66,8 +67,10 @@ const transaction = (db, fn) => {
   }
 };
 
-export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = () => new Date(), logger = false }) {
+export async function buildApp({ db, config, stripe, webPush, fetchImpl = fetch, now = () => new Date(), logger = false }) {
   const app = Fastify({ logger });
+  const notifier = createNotifier({ db, config, now, fetchImpl, webPush, log: (...a) => app.log.warn(a.join(' ')) });
+  app.decorate('notifier', notifier); // le serveur appelle notifier.tick() toutes les 30 s
   const stripeClient = stripe ?? (config.stripeSecretKey ? new Stripe(config.stripeSecretKey) : null);
   const onlinePayment = Boolean(stripeClient && config.stripePublishableKey);
 
@@ -136,6 +139,7 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
     if (!settings.ordersOpen) return { date, slots: [], maxPizzasPerSlot: settings.maxPizzasPerSlot };
     const result = availableSlots(config, now(), {
       extraLeadMinutes: settings.rushMinutes,
+      leadMinutes: settings.leadMinutes ?? config.leadMinutes,
       maxPerSlot: settings.maxPizzasPerSlot,
       booked: bookedByTime(date),
       pizzas,
@@ -257,7 +261,7 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
       transaction(db, () => {
         const { date, slots } = slotsFor(pizzaCount);
         if (!slots.includes(b.pickupTime)) {
-          const full = pizzaCount > 0 && availableSlots(config, now(), { extraLeadMinutes: readSettings(db).rushMinutes }).slots.includes(b.pickupTime);
+          const full = pizzaCount > 0 && availableSlots(config, now(), { extraLeadMinutes: readSettings(db).rushMinutes, leadMinutes: readSettings(db).leadMinutes ?? config.leadMinutes }).slots.includes(b.pickupTime);
           throw new OrderError(full ? "Ce créneau est complet, choisissez une autre heure" : 'Créneau indisponible, choisissez une autre heure');
         }
         if (b.useReward) {
@@ -302,6 +306,8 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
         // Total à 0 € (pizza offerte seule) : rien à payer en ligne.
         db.prepare("UPDATE orders SET payment_status = 'paid', status = 'new' WHERE id = ?").run(id);
       }
+      // Arrivée en cuisine : tout de suite au retrait ; après confirmation du paiement pour le paiement en ligne.
+      if (!online || total === 0) notifier.orderPlaced(loadOrder(db, id));
       return reply.code(201).send({ order: publicOrder(loadOrder(db, id)), clientSecret });
     },
   );
@@ -364,6 +370,7 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
       const res = db
         .prepare("UPDATE orders SET payment_status = 'paid', status = 'new' WHERE id = ? AND status = 'pending_payment'")
         .run(orderId);
+      if (res.changes > 0) notifier.orderPlaced(loadOrder(db, orderId));
       if (res.changes === 0) {
         // Paiement arrivé après l'annulation de la commande : on rembourse.
         const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(orderId);
@@ -394,7 +401,14 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
            ORDER BY pickup_date, pickup_time, number`,
         )
         .all(today);
-      return { orders: rows.map((r) => publicOrder(loadOrder(db, r.id))) };
+      return {
+        now: now().toISOString(),
+        typical_prep_minutes: typicalPrepMinutes(db, config, now()),
+        orders: rows.map((r) => {
+          const o = publicOrder(loadOrder(db, r.id));
+          return { ...o, pickup_at: localToDate(config.timezone, o.pickup_date, o.pickup_time).toISOString() };
+        }),
+      };
     });
 
     admin.patch('/orders/:id/status', async (req, reply) => {
@@ -404,8 +418,12 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
       if (!order || order.status === 'pending_payment') return reply.code(404).send({ error: 'Commande introuvable' });
       if (order.status === 'cancelled') return reply.code(409).send({ error: 'Commande déjà annulée' });
 
+      const changed = status !== order.status;
       transaction(db, () => {
         db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, order.id);
+        // Chronométrage : on garde la 1re fois que chaque étape est atteinte.
+        const stamp = { preparing: 'preparing_at', ready: 'ready_at', done: 'done_at' }[status];
+        if (stamp) db.prepare(`UPDATE orders SET ${stamp} = COALESCE(${stamp}, ?) WHERE id = ?`).run(now().toISOString(), order.id);
         if (status === 'cancelled' && order.reward_used && order.loyalty_id) {
           refundReward(db, order.loyalty_id);
           db.prepare('UPDATE orders SET reward_used = 0 WHERE id = ?').run(order.id);
@@ -416,15 +434,14 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
           db.prepare('UPDATE orders SET stamps_credited = 1 WHERE id = ?').run(order.id);
         }
       });
-      if (status === 'ready')
-        sendPush(order.push_token, 'Votre commande est prête 🍕', `Commande n°${order.number} à retirer chez Little Italy.`, fetchImpl);
+      if (changed) notifier.statusChanged(order, status);
       return { order: publicOrder(loadOrder(db, order.id)) };
     });
 
     admin.get('/stats', async (req, reply) => {
       const days = req.query.days === undefined ? 30 : Number(req.query.days);
       if (!Number.isInteger(days) || days < 1 || days > 365) return reply.code(400).send({ error: 'Période invalide (1 à 365 jours)' });
-      return computeStats(db, config, now(), days);
+      return { ...computeStats(db, config, now(), days), kitchen: computeKitchen(db, config, now(), days) };
     });
 
     admin.get('/customers', async () => ({ customers: listCustomers(db, config, now()) }));
@@ -439,7 +456,30 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
       return { ok: true };
     });
 
-    admin.get('/settings', async () => readSettings(db));
+    // Notifications sur le téléphone / la tablette d'Olivier (écran admin installé).
+    admin.get('/push/key', async () => ({
+      publicKey: notifier.vapidPublicKey(),
+      devices: db.prepare('SELECT COUNT(*) AS n FROM owner_subscriptions').get().n,
+    }));
+    admin.post('/push/subscribe', async (req, reply) => {
+      const sub = req.body?.subscription;
+      const ok =
+        typeof sub?.endpoint === 'string' && /^https:\/\//.test(sub.endpoint) && sub.endpoint.length < 2000 &&
+        typeof sub.keys?.p256dh === 'string' && typeof sub.keys?.auth === 'string';
+      if (!ok) return reply.code(400).send({ error: 'Abonnement invalide' });
+      db.prepare(
+        `INSERT INTO owner_subscriptions (endpoint, p256dh, auth, created_at) VALUES (?,?,?,?)
+         ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`,
+      ).run(sub.endpoint, sub.keys.p256dh, sub.keys.auth, now().toISOString());
+      return reply.code(201).send({ ok: true });
+    });
+    admin.post('/push/unsubscribe', async (req) => {
+      db.prepare('DELETE FROM owner_subscriptions WHERE endpoint = ?').run(String(req.body?.endpoint ?? ''));
+      return { ok: true };
+    });
+    admin.post('/push/test', async () => ({ sent: await notifier.sendTest() }));
+
+    admin.get('/settings', async () => ({ ...readSettings(db), defaultLeadMinutes: config.leadMinutes }));
     admin.put('/settings', async (req, reply) => {
       const error = writeSettings(db, req.body ?? {});
       if (error) return reply.code(400).send({ error });

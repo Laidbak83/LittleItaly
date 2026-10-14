@@ -22,6 +22,27 @@ export function localNow(timezone, now = new Date()) {
   };
 }
 
+export const addDays = (date, n) => {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+export const daysBetween = (a, b) => Math.round((new Date(`${b}T12:00:00Z`) - new Date(`${a}T12:00:00Z`)) / 86400000);
+
+// Instant (Date) correspondant à une date et une heure LOCALES du restaurant, changements d'heure compris.
+export function localToDate(timezone, date, hhmm) {
+  const [y, m, d] = date.split('-').map(Number);
+  const [H, M] = hhmm.split(':').map(Number);
+  const asUtc = Date.UTC(y, m - 1, d, H, M);
+  const offsetAt = (ms) => {
+    const l = localNow(timezone, new Date(ms));
+    const [ly, lm, ld] = l.date.split('-').map(Number);
+    return Date.UTC(ly, lm - 1, ld, 0, l.minutes) - Math.floor(ms / 60000) * 60000;
+  };
+  const first = asUtc - offsetAt(asUtc);
+  return new Date(asUtc - offsetAt(first));
+}
+
 const toMinutes = (hhmm) => {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
@@ -33,9 +54,9 @@ const toHHMM = (min) =>
 // opts : extraLeadMinutes (mode rush), maxPerSlot (capacité du four, 0 = illimité),
 // booked (Map heure → pizzas déjà réservées), pizzas (pizzas de la commande en cours).
 export function availableSlots(config, now = new Date(), opts = {}) {
-  const { extraLeadMinutes = 0, maxPerSlot = 0, booked = new Map(), pizzas = 1 } = opts;
+  const { extraLeadMinutes = 0, leadMinutes = config.leadMinutes, maxPerSlot = 0, booked = new Map(), pizzas = 1 } = opts;
   const local = localNow(config.timezone, now);
-  const earliest = local.minutes + config.leadMinutes + extraLeadMinutes;
+  const earliest = local.minutes + leadMinutes + extraLeadMinutes;
   const slots = [];
   for (const [open, close] of config.hoursByWeekday[local.weekday] ?? []) {
     for (let t = toMinutes(open); t <= toMinutes(close); t += config.slotMinutes) {

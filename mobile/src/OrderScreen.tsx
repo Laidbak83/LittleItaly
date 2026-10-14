@@ -6,7 +6,7 @@ import { colors } from './theme';
 
 const STEPS: { status: OrderStatus; label: string }[] = [
   { status: 'new', label: 'Commande reçue' },
-  { status: 'preparing', label: 'En préparation' },
+  { status: 'preparing', label: 'Acceptée, en préparation' },
   { status: 'ready', label: 'Prête à retirer !' },
 ];
 const rank = (s: OrderStatus) => STEPS.findIndex((x) => x.status === s);

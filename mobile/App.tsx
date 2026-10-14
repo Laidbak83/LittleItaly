@@ -37,7 +37,7 @@ function Shell() {
   }, []);
 
   useEffect(() => {
-    initPush();
+    initPush(() => setTab('order'));
     loadMenu();
     loadSaved().then(async (s) => {
       setLoyaltyId(s.loyaltyId);

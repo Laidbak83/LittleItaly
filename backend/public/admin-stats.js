@@ -112,6 +112,52 @@ function installTooltip() {
   document.addEventListener('mouseleave', () => (tip.hidden = true));
 }
 
+/* ---------- Section « Cuisine » : temps de préparation, ponctualité ---------- */
+function kitchenSection(k) {
+  const head = `<div class="card"><h3>🔥 Cuisine : combien de temps ça prend ?</h3>
+    <p class="muted">Mesuré entre vos appuis sur « Préparer » et « Prête » (${k.measured} commande${k.measured > 1 ? 's' : ''} chronométrée${k.measured > 1 ? 's' : ''}).
+    Ces chiffres sont justes si l'on appuie au bon moment : « Préparer » quand on commence, « Prête » quand c'est fini.</p>`;
+  if (!k.enough) {
+    return `${head}<p>Pas encore assez de données (${k.measured} sur ${k.min_sample} commandes nécessaires). Utilisez « Préparer » puis « Prête » pour chaque commande : les conseils apparaîtront ici.</p></div>`;
+  }
+  const p = k.punctuality;
+  const hours = k.by_hour.filter((h) => h.n > 0);
+  const hFrom = Math.min(...hours.map((h) => h.hour)), hTo = Math.max(...hours.map((h) => h.hour));
+  const byHour = k.by_hour.filter((h) => h.hour >= hFrom && h.hour <= hTo);
+  const apply = [];
+  if (k.suggestions.lead_minutes && k.suggestions.lead_minutes !== k.lead_minutes) {
+    apply.push(`<button class="act sm" data-apply="lead" data-v="${k.suggestions.lead_minutes}">Fixer le délai minimum à ${k.suggestions.lead_minutes} min</button>`);
+  }
+  if (k.suggestions.capacity_per_slot && k.suggestions.capacity_per_slot !== k.max_pizzas_per_slot) {
+    apply.push(`<button class="act sm" data-apply="cap" data-v="${k.suggestions.capacity_per_slot}">Limiter à ${k.suggestions.capacity_per_slot} pizzas par créneau de 15 min</button>`);
+  }
+  return `${head}
+    <div class="tiles">
+      ${tile('Temps typique', `${fr(k.prep.median, 1)} min`, '<span class="muted">de « Préparer » à « Prête »</span>')}
+      ${tile('Dans 8 cas sur 10', `moins de ${fr(Math.ceil(k.prep.p80))} min`, '<span class="muted">pour une commande</span>')}
+      ${tile('Prêtes à l\'heure', pct(p.on_time_share), p.late_avg_minutes ? `<span class="muted">retard moyen ${fr(p.late_avg_minutes, 1)} min</span>` : '<span class="muted">aucun retard notable</span>')}
+      ${tile('Attente au comptoir', k.counter_wait.median === null ? '—' : `${fr(k.counter_wait.median, 1)} min`, '<span class="muted">entre « Prête » et « Retirée »</span>')}
+    </div>
+    <div class="grid2">
+      <div><h3 style="margin-top:8px">Selon le nombre de pizzas</h3><p class="muted">Temps de préparation typique d'une commande</p>
+        ${columnChart({
+          data: k.by_pizzas, value: (g) => g.median ?? 0, title: 'Temps de préparation selon le nombre de pizzas', height: 170, half: true, minMax: 10,
+          tickLabel: (g) => `${g.label}`, fmtAxis: (v) => `${fr(v)} min`, fmtPeak: (v) => `${fr(v, 1)} min`,
+          tip: (g) => (g.median === null ? `${g.label} pizza(s) : pas assez de données (${g.n})` : `${g.label} pizza(s) : ${fr(g.median, 1)} min (${g.n} commandes)`),
+        })}</div>
+      <div><h3 style="margin-top:8px">Selon l'heure</h3><p class="muted">Temps de préparation typique, par heure de retrait</p>
+        ${columnChart({
+          data: byHour, value: (h) => h.median ?? 0, title: 'Temps de préparation selon l\'heure de retrait', height: 170, half: true, minMax: 10,
+          tickLabel: (h) => `${h.hour} h`, fmtAxis: (v) => `${fr(v)} min`, fmtPeak: (v) => `${fr(v, 1)} min`,
+          tip: (h) => (h.median === null ? `${h.hour} h : pas assez de données (${h.n})` : `${h.hour} h–${h.hour + 1} h : ${fr(h.median, 1)} min (${h.n} commandes)`),
+        })}</div>
+    </div>
+    <h3 style="margin-top:14px">Ce que ça nous apprend</h3>
+    <ul class="insights">${k.insights.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+    ${apply.length ? `<div class="row" style="margin-top:8px">${apply.join('')}</div>` : ''}
+    </div>`;
+}
+
 /* ---------- Écran « Stats » ---------- */
 
 let statsDays = 30;
@@ -193,6 +239,8 @@ function renderStats() {
       }))) : '<p class="muted">Pas encore de ventes.</p>'}
     </div>
 
+    ${kitchenSection(s.kitchen)}
+
     <div class="grid2">
       <div class="card"><h3>Clients</h3>
         ${splitBar([
@@ -217,6 +265,11 @@ function renderStats() {
         : '<p class="muted">Pas encore d\'avis. Les clients peuvent noter leurs pizzas dans l\'appli après le retrait de leur commande.</p>'}
     </div>`;
 
+  $('#stats').querySelectorAll('[data-apply]').forEach((b) => (b.onclick = safe(async () => {
+    const body = b.dataset.apply === 'lead' ? { leadMinutes: Number(b.dataset.v) } : { maxPizzasPerSlot: Number(b.dataset.v) };
+    await api('/settings', { method: 'PUT', body });
+    await loadStats();
+  })));
   $('#stats').querySelectorAll('[data-days]').forEach((b) => (b.onclick = safe(async () => { statsDays = Number(b.dataset.days); await loadStats(); })));
 }
 

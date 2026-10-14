@@ -17,12 +17,16 @@ Application iOS / Android pour le restaurant Little Italy (Trans-en-Provence).
 - Choix de l'heure de retrait, paiement **en ligne (Stripe) ou au retrait**
 - **Carte de fidélité** : 1 pizza retirée = 1 tampon, 10 tampons = 1 pizza offerte (la moins chère du panier)
 - **Pizza de la semaine** (avec prix promo facultatif), **best-sellers** 🔥 et **notes des pizzas** ★ données par les clients après le retrait
-- **Commander à nouveau** en un clic, suivi de commande, notification « commande prête »
+- **Commander à nouveau** en un clic, suivi de commande en direct
+- **Notifications** à chaque étape : commande acceptée, **bientôt prête**, **prête**, « votre pizza vous attend » (si elle n'est pas retirée), annulation, et invitation à noter les pizzas 30 min après le retrait
 
 **Côté Olivier (`/admin`, sur tablette, téléphone ou ordinateur ; installable sur l'écran d'accueil)**
 - Commandes en direct (bip à chaque nouvelle commande), détail des options de chaque pizza
 - **Régulation du four** : maximum de pizzas par créneau de 15 min (créneau grisé quand il est plein), mode **« rush »** (+10 à +60 min de préparation), bouton **Ouvert / Fermé**
 - **Tableau de bord** (onglet *Stats*) : chiffre d'affaires, commandes, panier moyen, pizzas vendues (avec comparaison à la période précédente), courbes par jour, heures de pointe, jours les plus chargés, classement des ventes, nouveaux clients / clients fidèles, paiement en ligne ou au retrait, avis clients
+- **Notifications sur son téléphone** (écran installé, *Réglages*) : nouvelle commande, **commande en retard**, **bilan du soir** ; chaque type se coupe séparément
+- **Chronomètre de cuisine** : sur chaque commande « à lancer maintenant », « en préparation depuis X min », « en retard de X min », « prête depuis X min »
+- **Stats → Cuisine** : temps de préparation typique et « 8 fois sur 10 », selon le nombre de pizzas et selon l'heure, commandes prêtes à l'heure, attente au comptoir, **conseils chiffrés** (délai minimum conseillé, limite de pizzas par créneau) applicables en un clic
 - **Fichier clients** (onglet *Clients*, un petit CRM) : recherche, tri, segments (fidèles, nouveaux, **à relancer**), historique et pizza préférée de chaque client, notes privées, export CSV
 - **Pizza de la semaine** (onglet *Réglages*) avec prix promo et date de fin
 - Message en haut de l'appli (pizza du moment, promo, congés…)
@@ -59,7 +63,7 @@ En mode `npm run dev`, les créneaux de retrait sont **ouverts 24h/24** pour pou
 **45 jours d'historique de démonstration** pour voir les statistiques et le fichier clients remplis : `npm run demo:history` dans `backend` (sur une base vide ; clients et avis fictifs, **jamais en production**).
 
 ### Installer l'écran d'Olivier sur son téléphone
-Ouvrir `/admin` dans Chrome (Android) ou Safari (iPhone), puis *Ajouter à l'écran d'accueil* : il s'ouvre ensuite comme une application. Pour le consulter hors du restaurant, le serveur doit être en ligne (HTTPS). Le bip de nouvelle commande ne retentit que quand la page est ouverte : les **notifications sur le téléphone d'Olivier** sont une prochaine étape.
+Ouvrir `/admin` dans Chrome (Android) ou Safari (iPhone), puis *Ajouter à l'écran d'accueil* : il s'ouvre ensuite comme une application. Pour le consulter hors du restaurant, le serveur doit être en ligne (HTTPS). Le bip de nouvelle commande ne retentit que quand la page est ouverte ; pour être prévenu **même page fermée**, activer les notifications dans *Réglages* (à faire sur chaque appareil ; elles exigent HTTPS en production et, sur iPhone, l'écran ajouté à l'écran d'accueil, iOS 16.4 ou plus).
 
 ### Scénario de test conseillé
 
@@ -70,11 +74,12 @@ Ouvrir `/admin` dans Chrome (Android) ou Safari (iPhone), puis *Ajouter à l'éc
 5. **Régulation** (`/admin` → *Réglages*) : passer en **Fermé** puis changer d'onglet dans l'appli → « commandes fermées » ; mettre le maximum de pizzas par créneau à 2 et commander 3 pizzas → créneau refusé ; ajouter un message en bannière → il s'affiche en haut de la carte.
 6. **Carte** (`/admin` → *Carte*) : changer un prix, masquer un article, ajouter une photo, saisir des allergènes → tirer l'écran de la carte vers le bas dans l'appli pour recharger.
 7. **Avis, pizza de la semaine, stats** : passer une commande en *Retirée* dans la cuisine → dans l'appli, onglet *Commande*, noter la pizza ; dans `/admin` → *Réglages*, choisir une pizza de la semaine avec un prix promo → elle apparaît en haut de la carte ; `/admin` → *Stats* et *Clients* pour voir les chiffres.
-8. **Fidélité complète** : mettre 10 pizzas dans une commande, la passer en *Retirée* dans la cuisine → une **pizza offerte** apparaît dans l'appli au prochain panier.
+8. **Chrono et notifications** : dans la cuisine, appuyer sur *Préparer* puis *Prête* → les durées alimentent *Stats → Cuisine* (il faut au moins 10 commandes chronométrées pour avoir des conseils ; `npm run demo:history` en fabrique 289). Les rappels clients (« bientôt prête », « votre pizza vous attend ») partent toutes les 30 s du planificateur du serveur.
+9. **Fidélité complète** : mettre 10 pizzas dans une commande, la passer en *Retirée* dans la cuisine → une **pizza offerte** apparaît dans l'appli au prochain panier.
 
 Notes pour le test dans Expo Go :
 - **Au retrait** fonctionne directement. Le paiement **en ligne** demande des clés Stripe de test (voir `backend/.env.example`, carte de test `4242 4242 4242 4242`).
-- Les **notifications push** ne fonctionnent pas dans Expo Go sur Android (elles nécessitent un build de l'appli) : la commande, elle, fonctionne normalement.
+- Les **notifications push aux clients** ne fonctionnent pas dans Expo Go sur Android (elles nécessitent un build de l'appli) ; le suivi de commande, lui, se met à jour tout seul dans l'appli. Les **notifications d'Olivier** (écran admin) se testent sur `localhost` dans Chrome : *Réglages → Activer sur cet appareil*.
 - Pour repartir de zéro : arrêter le backend et supprimer le dossier `backend/data/`.
 
 ## La carte chargée (d'après la carte affichée au restaurant)
@@ -91,7 +96,8 @@ Notes pour le test dans Expo Go :
 - [ ] **Horaires de retrait** (début à 11h30, dernier retrait = heure de fermeture) : `backend/src/config.js`. Capacité du four et rush : réglables dans `/admin` → *Réglages*.
 - [ ] **Hébergement du backend** en HTTPS, avec un `ADMIN_TOKEN` fort (`backend/.env.example`). La base SQLite et les photos sont dans `backend/data/` : prévoir un volume persistant et des sauvegardes. Définir `EXPO_PUBLIC_API_URL` pour l'appli (`mobile/.env.example`).
 - [ ] **Stripe** : compte du restaurant, clés dans `.env`, webhook `payment_intent.succeeded` → `https://<serveur>/api/stripe/webhook`. Pour Apple Pay, ajouter `merchantIdentifier` dans le plugin Stripe de `mobile/app.json`.
-- [ ] **Notifications push** : `eas init` (renseigne `extra.eas.projectId` dans `app.json`) puis configurer les identifiants push (FCM pour Android, APNs pour iOS).
+- [ ] **Notifications du patron** : définir `VAPID_SUBJECT` (adresse de contact) et servir le site en HTTPS. Les abonnements des appareils sont conservés dans la base.
+- [ ] **Notifications push aux clients** : `eas init` (renseigne `extra.eas.projectId` dans `app.json`) puis configurer les identifiants push (FCM pour Android, APNs pour iOS).
 - [ ] **Publication** : comptes développeur Apple (99 €/an) et Google Play (25 € une fois) au nom du restaurant, identifiants d'app `fr.littleitaly.commande` à valider, icône et splash définitifs, puis `eas build` / `eas submit`.
 - [ ] Mentions légales et politique de confidentialité (nom et téléphone collectés) : exigées par les stores.
 - [ ] Règles de fidélité à valider avec Olivier (10 tampons, 1 tampon par pizza, pizza offerte = la moins chère, formules non éligibles à la pizza offerte).
