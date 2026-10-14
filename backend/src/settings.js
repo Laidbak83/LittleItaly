@@ -1,7 +1,10 @@
 // Réglages que le patron change en direct (bouton « fermer », rush, capacité du four…).
 const DEFAULTS = { orders_open: '1', rush_minutes: '0', max_pizzas_per_slot: '8', banner: '', half_and_half: '0',
   featured_item_id: '', featured_price_cents: '', featured_note: '', featured_until: '',
-  lead_minutes: '', notify_new: '1', notify_late: '1', notify_summary: '1' };
+  lead_minutes: '', notify_new: '1', notify_late: '1', notify_summary: '1',
+  hold_unpaid: '0', welcome_cents: '0', welcome_min_cents: '1000', referral_stamps: '3', max_advance_days: '7', prepay_over_cents: '0',
+  info_address: '1303 route de Draguignan, Centre commercial Carrefour, Trans-en-Provence', info_phone: '', info_maps_url: '',
+  info_review_url: '', public_url: '' };
 
 export function readSettings(db) {
   const rows = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((r) => [r.key, r.value]));
@@ -18,6 +21,14 @@ export function readSettings(db) {
     featuredUntil: v.featured_until || null,
     leadMinutes: v.lead_minutes === '' ? null : Number(v.lead_minutes), // délai minimum de préparation (null = valeur par défaut)
     ownerNotify: { newOrder: v.notify_new === '1', late: v.notify_late === '1', summary: v.notify_summary === '1' },
+    holdUnpaid: v.hold_unpaid === '1', // pizzas à régler au retrait : lancées quand le client dit « J'arrive »
+    welcomeCents: Number(v.welcome_cents), // remise sur la 1re commande (0 = désactivée)
+    welcomeMinCents: Number(v.welcome_min_cents),
+    referralStamps: Number(v.referral_stamps), // tampons offerts au parrain (0 = parrainage désactivé)
+    maxAdvanceDays: Number(v.max_advance_days), // jusqu'à combien de jours à l'avance on peut commander (0 = aujourd'hui seulement)
+    prepayOverCents: Number(v.prepay_over_cents), // au-delà : paiement en ligne demandé (0 = jamais)
+    info: { address: v.info_address, phone: v.info_phone, mapsUrl: v.info_maps_url, reviewUrl: v.info_review_url },
+    publicUrl: v.public_url,
   };
 }
 
@@ -36,6 +47,39 @@ export function writeSettings(db, input) {
   }
   for (const [key, col] of [['notifyNew', 'notify_new'], ['notifyLate', 'notify_late'], ['notifySummary', 'notify_summary']]) {
     if (input[key] !== undefined) entries.push([col, input[key] ? '1' : '0']);
+  }
+  const intSetting = (key, col, min, max, label) => {
+    if (input[key] === undefined) return null;
+    const n = Number(input[key]);
+    if (!Number.isInteger(n) || n < min || n > max) return `${label} invalide (${min} à ${max})`;
+    entries.push([col, String(n)]);
+    return null;
+  };
+  if (input.holdUnpaid !== undefined) entries.push(['hold_unpaid', input.holdUnpaid ? '1' : '0']);
+  const intError =
+    intSetting('welcomeCents', 'welcome_cents', 0, 2000, 'Remise de bienvenue') ??
+    intSetting('welcomeMinCents', 'welcome_min_cents', 0, 10000, 'Commande minimum') ??
+    intSetting('referralStamps', 'referral_stamps', 0, 10, 'Tampons de parrainage') ??
+    intSetting('maxAdvanceDays', 'max_advance_days', 0, 30, 'Jours à l\'avance') ??
+    intSetting('prepayOverCents', 'prepay_over_cents', 0, 100000, 'Seuil de paiement en ligne');
+  if (intError) return intError;
+  if (input.info !== undefined) {
+    const i = input.info ?? {};
+    const text = (v, max) => String(v ?? '').trim().slice(0, max);
+    const url = (v) => {
+      const t = text(v, 500);
+      return t === '' || /^https:\/\//.test(t) ? t : null;
+    };
+    const phone = text(i.phone, 25);
+    if (phone && !/^[+\d][\d\s.]{5,24}$/.test(phone)) return 'Téléphone invalide';
+    const maps = url(i.mapsUrl), review = url(i.reviewUrl);
+    if (maps === null || review === null) return 'Les liens doivent commencer par https://';
+    entries.push(['info_address', text(i.address, 200)], ['info_phone', phone], ['info_maps_url', maps], ['info_review_url', review]);
+  }
+  if (input.publicUrl !== undefined) {
+    const u = String(input.publicUrl ?? '').trim();
+    if (u && !/^https?:\/\//.test(u)) return "L'adresse du site doit commencer par https://";
+    entries.push(['public_url', u.slice(0, 300)]);
   }
   if (input.rushMinutes !== undefined) {
     const n = Number(input.rushMinutes);

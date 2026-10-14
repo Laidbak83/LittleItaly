@@ -36,8 +36,16 @@ const intList = (v, max, label) => {
 const baseCents = (item, featured) =>
   featured && featured.itemId === item.id && featured.priceCents !== null ? featured.priceCents : item.price_cents;
 
-function priceItem(db, line, qty, featured) {
-  const getItem = db.prepare('SELECT * FROM menu_items WHERE id = ? AND available = 1');
+// Un article marqué « épuisé aujourd'hui » par la cuisine ne peut plus être commandé ce jour-là.
+const checkStock = (row, today) => {
+  if (today && row.sold_out_date === today) fail(`${row.name} est épuisé aujourd'hui`);
+  return row;
+};
+
+function priceItem(db, line, qty, ctx) {
+  const { featured, today } = ctx;
+  const getRow = db.prepare('SELECT * FROM menu_items WHERE id = ? AND available = 1');
+  const getItem = { get: (id) => { const r = getRow.get(id); return r ? checkStock(r, today) : r; } };
   const row = getItem.get(Number(line.itemId)) ?? fail('Article indisponible');
   const item = shapeItem(row);
   const config = { itemId: item.id, quantity: qty };
@@ -83,7 +91,7 @@ function priceItem(db, line, qty, featured) {
     const getSup = db.prepare('SELECT * FROM supplements WHERE id = ? AND available = 1');
     const names = [];
     for (const id of extrasIds) {
-      const s = getSup.get(id) ?? fail('Supplément indisponible');
+      const s = checkStock(getSup.get(id) ?? fail('Supplément indisponible'), today);
       extrasTotal += s.price_cents;
       names.push(s.name);
     }
@@ -109,14 +117,14 @@ function priceItem(db, line, qty, featured) {
   };
 }
 
-function priceCombo(db, line, qty) {
+function priceCombo(db, line, qty, ctx) {
   const combo = db.prepare('SELECT * FROM combos WHERE id = ? AND available = 1').get(Number(line.comboId)) ?? fail('Formule indisponible');
   const slots = JSON.parse(combo.slots);
   const picks = intList(line.picks, 10, 'Choix');
   if (picks.length !== slots.length) fail('Composez toute la formule');
   const getItem = db.prepare('SELECT * FROM menu_items WHERE id = ? AND available = 1');
   const names = picks.map((id, i) => {
-    const it = getItem.get(id) ?? fail('Article indisponible');
+    const it = checkStock(getItem.get(id) ?? fail('Article indisponible'), ctx.today);
     if (it.kind !== slots[i]) fail('Choix incompatible avec la formule');
     return it.name;
   });
@@ -131,10 +139,10 @@ function priceCombo(db, line, qty) {
   };
 }
 
-// featured : pizza de la semaine active (voir settings.activeFeatured), ou null.
-export function priceLine(db, line, featured = null) {
+// ctx : { featured } pizza de la semaine active (voir settings.activeFeatured) ; { today } date du jour (articles épuisés).
+export function priceLine(db, line, ctx = {}) {
   if (!line || typeof line !== 'object') fail('Panier invalide');
   const qty = Number(line.quantity);
   if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) fail('Quantité invalide');
-  return line.comboId !== undefined ? priceCombo(db, line, qty) : priceItem(db, line, qty, featured);
+  return line.comboId !== undefined ? priceCombo(db, line, qty, ctx) : priceItem(db, line, qty, ctx);
 }

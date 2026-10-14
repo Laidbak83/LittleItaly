@@ -3,7 +3,7 @@
 // bilan du soir sont envoyés par tick(), appelé toutes les 30 secondes par le serveur.
 import webpush from 'web-push';
 import { typicalPrepMinutes } from './kitchen.js';
-import { sendPush } from './push.js';
+import { sendPush, sendPushBatch } from './push.js';
 import { readSettings } from './settings.js';
 import { localNow, localToDate } from './time.js';
 
@@ -100,6 +100,18 @@ export function createNotifier({ db, config, now, fetchImpl = fetch, webPush = w
       return Promise.resolve();
     },
 
+    // Le filleul a retiré sa première commande : le parrain gagne des tampons.
+    referralRewarded(referrerLoyaltyId, stamps) {
+      const d = db.prepare('SELECT push_token FROM devices WHERE loyalty_id = ?').get(referrerLoyaltyId);
+      if (!d?.push_token) return Promise.resolve();
+      return track(sendPush(d.push_token, 'Parrainage 🎉', `Votre ami a retiré sa première commande : +${stamps} tampons sur votre carte !`, fetchImpl));
+    },
+
+    // Campagne : une même notification à plusieurs appareils.
+    sendCampaign(recipients, title, body) {
+      return track(sendPushBatch(recipients.map((r) => ({ to: r.push_token, title, body })), fetchImpl));
+    },
+
     async sendTest() {
       return sendToOwner({ title: '🔔 Notifications activées', body: 'Vous recevrez ici les nouvelles commandes de Little Italy.', tag: 'test' });
     },
@@ -110,7 +122,8 @@ export function createNotifier({ db, config, now, fetchImpl = fetch, webPush = w
     async tick() {
       const t = now();
       const local = localNow(config.timezone, t);
-      const sent = { soon: 0, waiting: 0, rate: 0, late: 0, summary: 0 };
+      const settings = readSettings(db);
+      const sent = { soon: 0, waiting: 0, rate: 0, late: 0, summary: 0, arrive: 0 };
       const mark = (col, id) => db.prepare(`UPDATE orders SET ${col} = 1 WHERE id = ?`).run(id);
 
       // 1. « Bientôt prête » : un peu avant la fin habituelle de préparation (mesurée, sinon 12 min).
@@ -145,6 +158,8 @@ export function createNotifier({ db, config, now, fetchImpl = fetch, webPush = w
       // 4. Alerte patron : commande pas prête alors que l'heure de retrait est dépassée.
       for (const o of db.prepare("SELECT * FROM orders WHERE status IN ('new','preparing') AND notified_late = 0 AND pickup_date >= ?").all(localNowMinusDays(local.date, 1))) {
         if (minutes(t - pickupAt(o)) < LATE_AFTER_MIN) continue;
+        // Pizza à régler au retrait et pas encore lancée : le client n'a pas dit « J'arrive », la cuisine attend.
+        if (settings.holdUnpaid && o.payment_status === 'unpaid' && o.status === 'new' && !o.arrival_eta_at) continue;
         mark('notified_late', o.id);
         await track(
           notifyOwner('late', {
@@ -156,7 +171,17 @@ export function createNotifier({ db, config, now, fetchImpl = fetch, webPush = w
         sent.late++;
       }
 
-      // 5. Bilan du soir, une fois par jour, un peu après la fermeture.
+      // 5. Pizzas à régler au retrait, lancées sur « J'arrive » : on rappelle au client de nous prévenir.
+      if (settings.holdUnpaid) {
+        for (const o of db.prepare("SELECT * FROM orders WHERE status = 'new' AND payment_status = 'unpaid' AND arrival_eta_at IS NULL AND notified_arrive = 0 AND push_token IS NOT NULL").all()) {
+          if (minutes(pickupAt(o) - t) > 15) continue; // trop tôt : on attend d'être à 15 min du retrait
+          mark('notified_arrive', o.id);
+          await track(toCustomer(o, 'Dites-nous quand vous partez 🚶', `Votre commande n°${o.number} est prévue à ${o.pickup_time}. Appuyez sur « J'arrive » pour que nous lancions votre pizza.`));
+          sent.arrive++;
+        }
+      }
+
+      // 6. Bilan du soir, une fois par jour, un peu après la fermeture.
       const ranges = config.hoursByWeekday[local.weekday] ?? [];
       if (ranges.length && getSetting('last_summary_date') !== local.date) {
         const [h, m] = ranges.at(-1)[1].split(':').map(Number);

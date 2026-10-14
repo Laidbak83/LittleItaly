@@ -96,6 +96,41 @@ export function openDb(path, { seed = true } = {}) {
       auth TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS slot_offers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      weekdays TEXT NOT NULL DEFAULT '',
+      discount_cents INTEGER NOT NULL CHECK (discount_cents > 0),
+      min_order_cents INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS closures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date_from TEXT NOT NULL,
+      date_to TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS referral_codes (
+      loyalty_id TEXT PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE IF NOT EXISTS devices (
+      loyalty_id TEXT PRIMARY KEY,
+      push_token TEXT,
+      marketing INTEGER NOT NULL DEFAULT 0,
+      marketing_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sent_at TEXT NOT NULL,
+      segment TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      recipients INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS customer_notes (
       phone TEXT PRIMARY KEY,
       note TEXT NOT NULL DEFAULT ''
@@ -105,6 +140,15 @@ export function openDb(path, { seed = true } = {}) {
   ensureColumn(db, 'orders', 'feedback', 'TEXT');
   // Chronométrage de la cuisine (quand chaque étape a été déclenchée) et notifications déjà envoyées.
   for (const col of ['preparing_at', 'ready_at', 'done_at']) ensureColumn(db, 'orders', col, 'TEXT');
+  // Arrivée du client (« J'arrive »), offres, parrainage, articles épuisés.
+  ensureColumn(db, 'orders', 'arrival_eta_at', 'TEXT');
+  for (const col of ['arrival_here', 'notified_arrive', 'offer_discount_cents', 'welcome_discount_cents', 'referral_credited']) {
+    ensureColumn(db, 'orders', col, 'INTEGER NOT NULL DEFAULT 0');
+  }
+  ensureColumn(db, 'orders', 'offer_label', 'TEXT');
+  ensureColumn(db, 'orders', 'referred_by', 'TEXT');
+  ensureColumn(db, 'menu_items', 'sold_out_date', 'TEXT');
+  ensureColumn(db, 'supplements', 'sold_out_date', 'TEXT');
   for (const col of ['notified_soon', 'notified_waiting', 'notified_rate', 'notified_late']) {
     ensureColumn(db, 'orders', col, 'INTEGER NOT NULL DEFAULT 0');
   }

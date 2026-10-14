@@ -53,12 +53,17 @@ const toHHMM = (min) =>
 // Créneaux de retrait encore disponibles aujourd'hui.
 // opts : extraLeadMinutes (mode rush), maxPerSlot (capacité du four, 0 = illimité),
 // booked (Map heure → pizzas déjà réservées), pizzas (pizzas de la commande en cours).
+export const weekdayOf = (date) => new Date(`${date}T12:00:00Z`).getUTCDay();
+
+// opts.date : un autre jour que aujourd'hui (précommande) — pas de délai de préparation à respecter ce jour-là.
 export function availableSlots(config, now = new Date(), opts = {}) {
   const { extraLeadMinutes = 0, leadMinutes = config.leadMinutes, maxPerSlot = 0, booked = new Map(), pizzas = 1 } = opts;
   const local = localNow(config.timezone, now);
-  const earliest = local.minutes + leadMinutes + extraLeadMinutes;
+  const date = opts.date ?? local.date;
+  const isToday = date === local.date;
+  const earliest = isToday ? local.minutes + leadMinutes + extraLeadMinutes : 0;
   const slots = [];
-  for (const [open, close] of config.hoursByWeekday[local.weekday] ?? []) {
+  for (const [open, close] of config.hoursByWeekday[isToday ? local.weekday : weekdayOf(date)] ?? []) {
     for (let t = toMinutes(open); t <= toMinutes(close); t += config.slotMinutes) {
       const hhmm = toHHMM(t);
       if (t < earliest) continue;
@@ -66,5 +71,5 @@ export function availableSlots(config, now = new Date(), opts = {}) {
       slots.push(hhmm);
     }
   }
-  return { date: local.date, slots };
+  return { date, slots };
 }
