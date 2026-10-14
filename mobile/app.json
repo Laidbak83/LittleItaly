@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Little Italy",
+    "slug": "little-italy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "fr.littleitaly.commande"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "fr.littleitaly.commande"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "littleitaly",
+    "plugins": [
+      "expo-secure-store",
+      "expo-notifications",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "enableGooglePay": true
+        }
+      ]
+    ]
+  }
+}

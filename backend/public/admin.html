@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Little Italy – Commandes</title>
+<style>
+  :root { --bg:#faf6f0; --card:#fff; --ink:#222; --muted:#777; --red:#c8102e; --green:#2e7d32; --amber:#e08a00; --line:#e6dfd3; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:var(--red); color:#fff; padding:12px 16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:20px; margin:0; flex:1; }
+  nav button { background:transparent; color:#fff; border:1px solid #fff9; padding:8px 14px; border-radius:8px; font-size:16px; }
+  nav button.on { background:#fff; color:var(--red); }
+  main { padding:16px; max-width:900px; margin:auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .grow { flex:1; }
+  .badge { padding:2px 8px; border-radius:99px; font-size:13px; color:#fff; }
+  .new{background:var(--red)} .preparing{background:var(--amber)} .ready{background:var(--green)} .done{background:#999} .cancelled{background:#555}
+  .time { font-size:22px; font-weight:700; }
+  button.act { padding:10px 14px; border:0; border-radius:8px; font-size:16px; background:var(--ink); color:#fff; }
+  button.act.green { background:var(--green); } button.act.red { background:#999; }
+  ul { margin:8px 0; padding-left:20px; }
+  input, select { padding:8px; font-size:16px; border:1px solid var(--line); border-radius:8px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .off { opacity:.5; }
+  #login { max-width:340px; margin:60px auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🍕 Little Italy</h1>
+  <nav id="nav" hidden>
+    <button data-tab="orders" class="on">Commandes</button>
+    <button data-tab="menu">Carte</button>
+  </nav>
+</header>
+<main>
+  <div id="login" class="card" hidden>
+    <p>Code d'accès Olivier</p>
+    <div class="row"><input id="token" type="password" class="grow" autocomplete="current-password"><button class="act" id="go">Entrer</button></div>
+    <p class="muted" id="loginErr"></p>
+  </div>
+  <section id="orders" hidden></section>
+  <section id="menu" hidden></section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const euro = (c) => (c / 100).toFixed(2).replace('.', ',') + ' €';
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const STATUS_LABEL = { new:'Nouvelle', preparing:'En préparation', ready:'Prête', done:'Retirée', cancelled:'Annulée' };
+let token = sessionStorage.getItem('adminToken') || '';
+let tab = 'orders', knownIds = new Set(), first = true, timer;
+
+async function api(path, opts = {}) {
+  const res = await fetch('/api/admin' + path, {
+    ...opts,
+    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (res.status === 401 || res.status === 503) throw Object.assign(new Error('auth'), { auth: true, status: res.status });
+  if (!res.ok) throw new Error((await res.json()).error || res.status);
+  return res.json();
+}
+
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(); o.frequency.value = 880; o.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.4);
+  } catch {}
+}
+
+function orderCard(o) {
+  const next = { new:['preparing','Préparer','act'], preparing:['ready','Prête ✓','act green'], ready:['done','Retirée','act'] }[o.status];
+  const pay = o.payment_status === 'paid' ? '✅ Payée en ligne' : '💶 À encaisser au retrait';
+  return `<div class="card">
+    <div class="row"><span class="time">${esc(o.pickup_time)}</span>
+      <span class="grow"><b>#${o.number}</b> ${esc(o.customer_name)} · <a href="tel:${esc(o.phone)}">${esc(o.phone)}</a></span>
+      <span class="badge ${o.status}">${STATUS_LABEL[o.status]}</span></div>
+    <ul>${o.items.map((i) => `<li>${i.quantity} × ${esc(i.name)}</li>`).join('')}</ul>
+    ${o.note ? `<p class="muted">📝 ${esc(o.note)}</p>` : ''}
+    <div class="row"><b class="grow">${euro(o.total_cents)} — ${pay}</b>
+      ${next ? `<button class="${next[2]}" data-id="${o.id}" data-status="${next[0]}">${next[1]}</button>` : ''}
+      ${['new','preparing'].includes(o.status) ? `<button class="act red" data-id="${o.id}" data-status="cancelled">Annuler</button>` : ''}
+    </div></div>`;
+}
+
+async function loadOrders() {
+  const { orders } = await api('/orders');
+  const fresh = orders.filter((o) => o.status === 'new' && !knownIds.has(o.id));
+  if (fresh.length && !first) beep();
+  orders.forEach((o) => knownIds.add(o.id)); first = false;
+  const active = orders.filter((o) => ['new','preparing','ready'].includes(o.status));
+  const past = orders.filter((o) => !active.includes(o));
+  $('#orders').innerHTML =
+    (active.length ? active.map(orderCard).join('') : '<p class="muted">Aucune commande en cours.</p>') +
+    (past.length ? `<h3>Terminées aujourd'hui</h3>` + past.map(orderCard).join('') : '');
+}
+
+async function loadMenu() {
+  const { items } = await api('/menu');
+  $('#menu').innerHTML = `
+    <div class="card"><b>Ajouter un article</b><div class="row" style="margin-top:8px">
+      <input id="nCat" placeholder="Catégorie (Pizzas…)" list="cats"><input id="nName" placeholder="Nom" class="grow">
+      <input id="nPrice" placeholder="Prix €" size="6" inputmode="decimal"><button class="act" id="nAdd">Ajouter</button></div>
+      <datalist id="cats">${[...new Set(items.map((i) => i.category))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>` +
+    items.map((i) => `<div class="card row ${i.available ? '' : 'off'}" data-item="${i.id}">
+      <div class="grow"><b>${esc(i.name)}</b> <span class="muted">${esc(i.category)}</span><br><span class="muted">${esc(i.description)}</span></div>
+      <input value="${(i.price_cents / 100).toFixed(2)}" size="6" inputmode="decimal" data-price>
+      <button class="act" data-toggle>${i.available ? 'Disponible' : 'Masquée'}</button></div>`).join('');
+  $('#nAdd').onclick = async () => {
+    const priceCents = Math.round(parseFloat($('#nPrice').value.replace(',', '.')) * 100);
+    if (!$('#nName').value || !$('#nCat').value || isNaN(priceCents)) return alert('Catégorie, nom et prix requis');
+    await api('/menu', { method: 'POST', body: { category: $('#nCat').value, name: $('#nName').value, priceCents } });
+    loadMenu();
+  };
+  document.querySelectorAll('[data-item]').forEach((el) => {
+    const id = el.dataset.item, item = items.find((i) => i.id == id);
+    el.querySelector('[data-price]').onchange = async (e) => {
+      const priceCents = Math.round(parseFloat(e.target.value.replace(',', '.')) * 100);
+      if (isNaN(priceCents)) return loadMenu();
+      await api('/menu/' + id, { method: 'PATCH', body: { priceCents } }); loadMenu();
+    };
+    el.querySelector('[data-toggle]').onclick = async () => {
+      await api('/menu/' + id, { method: 'PATCH', body: { available: !item.available } }); loadMenu();
+    };
+  });
+}
+
+function show() {
+  $('#login').hidden = true; $('#nav').hidden = false;
+  $('#orders').hidden = tab !== 'orders'; $('#menu').hidden = tab !== 'menu';
+  document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+}
+async function refresh() {
+  try {
+    if (tab === 'orders') await loadOrders(); else if (document.activeElement.tagName !== 'INPUT') await loadMenu();
+    show();
+  } catch (e) {
+    if (!e.auth) return console.error(e);
+    clearInterval(timer); sessionStorage.removeItem('adminToken');
+    $('#nav').hidden = true; $('#orders').hidden = $('#menu').hidden = true; $('#login').hidden = false;
+    $('#loginErr').textContent = e.status === 503 ? "Le serveur n'a pas de code d'accès configuré." : 'Code incorrect.';
+  }
+}
+function start() { clearInterval(timer); first = true; refresh(); timer = setInterval(refresh, 5000); }
+
+$('#go').onclick = () => { token = $('#token').value; sessionStorage.setItem('adminToken', token); start(); };
+$('#token').onkeydown = (e) => e.key === 'Enter' && $('#go').click();
+$('#nav').onclick = (e) => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; show(); refresh(); } };
+$('#orders').onclick = async (e) => {
+  const b = e.target.closest('button[data-id]'); if (!b) return;
+  if (b.dataset.status === 'cancelled' && !confirm('Annuler cette commande ?')) return;
+  await api(`/orders/${b.dataset.id}/status`, { method: 'PATCH', body: { status: b.dataset.status } }); refresh();
+};
+if (token) start(); else $('#login').hidden = false;
+</script>
+</body>
+</html>
