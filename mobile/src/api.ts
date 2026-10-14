@@ -22,7 +22,7 @@ export type MenuItem = {
 };
 export type Supplement = { id: number; name: string; price_cents: number };
 export type Combo = { id: number; name: string; description: string; price_cents: number; slots: Kind[] };
-export type MenuData = { items: MenuItem[]; supplements: Supplement[]; combos: Combo[]; banner: string };
+export type MenuData = { items: MenuItem[]; supplements: Supplement[]; combos: Combo[]; banner: string; halfAndHalf: boolean };
 
 // Ce que l'appli envoie au serveur pour une ligne : des identifiants et des choix, jamais de prix.
 export type LineConfig =

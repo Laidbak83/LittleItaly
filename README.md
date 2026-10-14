@@ -10,9 +10,9 @@ Application iOS / Android pour le restaurant Little Italy (Trans-en-Provence).
 ## Fonctions
 
 **Côté client (appli)**
-- Carte avec photos, filtre 🌱 végétarien et **allergènes** affichés
-- **Pizzas personnalisables** : taille, moitié-moitié, suppléments payants, ingrédients à retirer
-- **Formules** (ex. pizza + boisson + dessert à prix fixe)
+- Carte avec photos, filtre 🌱 végétarien et **allergènes** affichés (quand ils sont renseignés)
+- **Pizzas personnalisables** : suppléments payants (1 €), ingrédients à retirer ; tailles et moitié-moitié en option
+- **Pizza Duo** à 14 € (demi-pizza au choix + salade chèvre / antipasti / chicken) et formules à prix fixe
 - Suggestions au panier (« Un petit extra ? » : boisson, dessert)
 - Choix de l'heure de retrait, paiement **en ligne (Stripe) ou au retrait**
 - **Carte de fidélité** : 1 pizza retirée = 1 tampon, 10 tampons = 1 pizza offerte (la moins chère du panier)
@@ -22,7 +22,7 @@ Application iOS / Android pour le restaurant Little Italy (Trans-en-Provence).
 - Commandes en direct (bip à chaque nouvelle commande), détail des options de chaque pizza
 - **Régulation du four** : maximum de pizzas par créneau de 15 min (créneau grisé quand il est plein), mode **« rush »** (+10 à +60 min de préparation), bouton **Ouvert / Fermé**
 - Message en haut de l'appli (pizza du moment, promo, congés…)
-- Édition de la carte : prix, disponibilité, photos, allergènes, tailles, ingrédients, suppléments, formules
+- Édition de la carte : prix, disponibilité, photos, allergènes, tailles, ingrédients, suppléments, formules, moitié-moitié (désactivé par défaut)
 
 Les prix sont toujours recalculés et validés côté serveur : l'appli n'envoie que des identifiants et des choix.
 
@@ -54,10 +54,18 @@ Notes pour le test dans Expo Go :
 - Pour tester la fidélité sans attendre 10 commandes : passer des commandes puis les marquer « Retirée » dans `/admin` (chaque pizza = 1 tampon).
 - Pour repartir de zéro : arrêter le backend et supprimer `backend/data/`.
 
+## La carte chargée (d'après la carte affichée au restaurant)
+
+- **11 pizzas** (Pacino, Berges, Scorcese, De Palma, Tarentino, Pesci, Phoenix, Fraticelli, Pop Toys, Soprano's, Calzone) au **tarif unique emporté de 11,50 €**, supplément **1,00 €**
+- **3 Pizza Duo** à 14 €, boissons froides, crêpes, tiramisu et mousse au chocolat
+- **Masqués par défaut** (à activer dans `/admin` → Carte si Olivier les vend à emporter) : lasagne, 4 salades, tarte tatin
+- **Non repris** : boissons chaudes, bières, vins, apéritifs, glaces, tartares/carpaccios, viandes/poissons, pâtes fraîches (choix de sauce à modéliser), plat du jour, menus
+- **Horaires de retrait** : lun–mer jusqu'à 19h, jeu–sam jusqu'à 22h, dimanche jusqu'à 15h (pas de pizza le dimanche soir). Début à **11h30 = hypothèse** : `backend/src/config.js`
+
 ## À faire avant la mise en production
 
-- [ ] **Carte** : tout le contenu fourni (pizzas, prix, tailles, suppléments, formules, **allergènes**) est un exemple à remplacer dans `/admin` → *Carte*. Les allergènes doivent être vérifiés par le restaurant.
-- [ ] **Horaires, jours de fermeture, délai de préparation** : `backend/src/config.js` (valeurs actuelles = hypothèses). Capacité du four et rush : réglables dans `/admin` → *Réglages*.
+- [ ] **Vérifier la carte avec Olivier** : prix et descriptions (relevés sur une photo de la carte), liste des suppléments proposés (hypothèse), mentions « végétarien » (déduites des ingrédients), et **renseigner les allergènes** (laissés vides volontairement : à saisir par le restaurant dans `/admin` → Carte).
+- [ ] **Horaires de retrait** (début à 11h30, dernier retrait = heure de fermeture) : `backend/src/config.js`. Capacité du four et rush : réglables dans `/admin` → *Réglages*.
 - [ ] **Hébergement du backend** en HTTPS, avec un `ADMIN_TOKEN` fort (`backend/.env.example`). La base SQLite et les photos sont dans `backend/data/` : prévoir un volume persistant et des sauvegardes. Définir `EXPO_PUBLIC_API_URL` pour l'appli (`mobile/.env.example`).
 - [ ] **Stripe** : compte du restaurant, clés dans `.env`, webhook `payment_intent.succeeded` → `https://<serveur>/api/stripe/webhook`. Pour Apple Pay, ajouter `merchantIdentifier` dans le plugin Stripe de `mobile/app.json`.
 - [ ] **Notifications push** : `eas init` (renseigne `extra.eas.projectId` dans `app.json`) puis configurer les identifiants push (FCM pour Android, APNs pour iOS).

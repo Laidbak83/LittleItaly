@@ -35,10 +35,9 @@ const toHHMM = (min) =>
 export function availableSlots(config, now = new Date(), opts = {}) {
   const { extraLeadMinutes = 0, maxPerSlot = 0, booked = new Map(), pizzas = 1 } = opts;
   const local = localNow(config.timezone, now);
-  if (config.closedWeekdays.includes(local.weekday)) return { date: local.date, slots: [] };
   const earliest = local.minutes + config.leadMinutes + extraLeadMinutes;
   const slots = [];
-  for (const [open, close] of config.hours) {
+  for (const [open, close] of config.hoursByWeekday[local.weekday] ?? []) {
     for (let t = toMinutes(open); t <= toMinutes(close); t += config.slotMinutes) {
       const hhmm = toHHMM(t);
       if (t < earliest) continue;

@@ -147,7 +147,8 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
       .prepare('SELECT id, name, description, price_cents, slots FROM combos WHERE available = 1 ORDER BY id')
       .all()
       .map((c) => ({ ...c, slots: JSON.parse(c.slots) }));
-    return { items, supplements, combos, banner: readSettings(db).banner };
+    const settings = readSettings(db);
+    return { items, supplements, combos, banner: settings.banner, halfAndHalf: settings.halfAndHalf };
   });
 
   app.get('/api/slots', async (req) => {
@@ -437,7 +438,7 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
       return { ok: true };
     });
 
-    const validSlots = (slots) => Array.isArray(slots) && slots.length >= 2 && slots.length <= 5 && slots.every((k) => KINDS.includes(k));
+    const validSlots = (slots) => Array.isArray(slots) && slots.length >= 1 && slots.length <= 5 && slots.every((k) => KINDS.includes(k));
     admin.post('/combos', async (req, reply) => {
       const b = req.body ?? {};
       const price = Number(b.priceCents);

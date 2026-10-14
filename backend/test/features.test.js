@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../src/app.js';
 import { openDb } from '../src/db.js';
+import { seedFixture } from './fixture.js';
 import { loadConfig } from '../src/config.js';
 
 const config = { ...loadConfig({ ADMIN_TOKEN: 'secret', STRIPE_PUBLISHABLE_KEY: 'pk_test_x' }), dbPath: ':memory:' };
@@ -11,9 +12,9 @@ const LOYALTY = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 async function setup(opts = {}) {
   let t = new Date('2026-10-14T10:00:00Z'); // 12:00 à Paris
   const clock = { advance: (ms) => (t = new Date(t.getTime() + ms)) };
-  const app = await buildApp({ db: openDb(':memory:'), config, now: () => t, fetchImpl: async () => {}, ...opts });
+  const app = await buildApp({ db: seedFixture(openDb(':memory:', { seed: false })), config, now: () => t, fetchImpl: async () => {}, ...opts });
   // Capacité illimitée par défaut (le test dédié fixe sa propre limite).
-  await app.inject({ method: 'PUT', url: '/api/admin/settings', headers: admin, payload: { maxPizzasPerSlot: 0 } });
+  await app.inject({ method: 'PUT', url: '/api/admin/settings', headers: admin, payload: { maxPizzasPerSlot: 0, halfAndHalf: true } });
   return { app, clock };
 }
 const base = (over = {}) => ({
@@ -198,5 +199,6 @@ test('admin : édition article (type, allergènes, tailles) + suppléments + for
   assert.equal((await patch('/supplements/1', { priceCents: 200 })).statusCode, 200);
   const created = await app.inject({ method: 'POST', url: '/api/admin/combos', headers: admin, payload: { name: 'Solo', priceCents: 1000, slots: ['pizza', 'dessert'] } });
   assert.equal(created.statusCode, 201);
-  assert.equal((await app.inject({ method: 'POST', url: '/api/admin/combos', headers: admin, payload: { name: 'X', priceCents: 1, slots: ['pizza'] } })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/admin/combos', headers: admin, payload: { name: 'X', priceCents: 1, slots: [] } })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/admin/combos', headers: admin, payload: { name: 'X', priceCents: 1, slots: ['pizza', 'glace'] } })).statusCode, 400);
 });

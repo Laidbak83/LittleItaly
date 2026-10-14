@@ -14,7 +14,7 @@ export function ItemModal({ menu, item, onClose, onAdd }: Props) {
   const [halfOn, setHalfOn] = useState(false);
   const [quantity, setQuantity] = useState(1);
 
-  const otherPizzas = menu.items.filter((i) => i.kind === 'pizza' && i.id !== item.id);
+  const otherPizzas = menu.halfAndHalf ? menu.items.filter((i) => i.kind === 'pizza' && i.id !== item.id) : [];
   const ingredients = useMemo(
     () => [...new Set([...item.ingredients, ...(choice.halfItem?.ingredients ?? [])])],
     [item, choice.halfItem],

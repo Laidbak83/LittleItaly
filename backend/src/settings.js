@@ -1,5 +1,5 @@
 // Réglages que le patron change en direct (bouton « fermer », rush, capacité du four…).
-const DEFAULTS = { orders_open: '1', rush_minutes: '0', max_pizzas_per_slot: '8', banner: '' };
+const DEFAULTS = { orders_open: '1', rush_minutes: '0', max_pizzas_per_slot: '8', banner: '', half_and_half: '0' };
 
 export function readSettings(db) {
   const rows = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map((r) => [r.key, r.value]));
@@ -9,6 +9,7 @@ export function readSettings(db) {
     rushMinutes: Number(v.rush_minutes),
     maxPizzasPerSlot: Number(v.max_pizzas_per_slot),
     banner: v.banner,
+    halfAndHalf: v.half_and_half === '1',
   };
 }
 
@@ -16,6 +17,7 @@ export function readSettings(db) {
 export function writeSettings(db, input) {
   const entries = [];
   if (input.ordersOpen !== undefined) entries.push(['orders_open', input.ordersOpen ? '1' : '0']);
+  if (input.halfAndHalf !== undefined) entries.push(['half_and_half', input.halfAndHalf ? '1' : '0']);
   if (input.rushMinutes !== undefined) {
     const n = Number(input.rushMinutes);
     if (!Number.isInteger(n) || n < 0 || n > 90) return 'Délai supplémentaire invalide (0 à 90 min)';

@@ -1,5 +1,7 @@
 // Calcul des lignes de commande. Tout est recalculé et validé ici à partir de la base :
 // le client n'envoie que des identifiants et des choix, jamais de prix.
+import { readSettings } from './settings.js';
+
 export class OrderError extends Error {}
 const fail = (message) => {
   throw new OrderError(message);
@@ -52,6 +54,7 @@ function priceItem(db, line, qty) {
   let allowed = item.ingredients;
 
   if (line.halfItemId != null) {
+    if (!readSettings(db).halfAndHalf) fail('Moitié-moitié indisponible');
     const halfRow = getItem.get(Number(line.halfItemId)) ?? fail('Pizza indisponible');
     const half = shapeItem(halfRow);
     if (half.kind !== 'pizza' || half.id === item.id) fail('Moitié-moitié invalide');

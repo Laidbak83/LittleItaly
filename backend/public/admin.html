@@ -129,13 +129,14 @@ async function loadSettings() {
         <select id="sRush">${[0,10,15,20,30,45,60].map((m) => `<option value="${m}" ${m === s.rushMinutes ? 'selected' : ''}>${m ? '+' + m + ' min' : 'Aucun'}</option>`).join('')}</select></label>
       <label class="f">Pizzas maximum par créneau de 15 min (0 = illimité)
         <input id="sMax" type="number" min="0" max="100" value="${s.maxPizzasPerSlot}"></label>
+      <p><label><input type="checkbox" id="sHalf" ${s.halfAndHalf ? 'checked' : ''}> Proposer « moitié-moitié » (deux pizzas en une, facturée au prix de la plus chère)</label></p>
       <label class="f">Message affiché en haut de l'appli (pizza du moment, promo, congés…)
         <input id="sBanner" maxlength="140" value="${esc(s.banner)}" placeholder="Ex : 🔥 Pizza du moment : Diavola à 11 € !"></label>
       <p class="row"><button class="act" id="sSave">Enregistrer</button><span class="saved" id="sOk"></span></p>
     </div>`;
   $('#sOpen').onclick = safe(async () => { await api('/settings', { method: 'PUT', body: { ordersOpen: !s.ordersOpen } }); loadSettings(); });
   $('#sSave').onclick = safe(async () => {
-    await api('/settings', { method: 'PUT', body: { rushMinutes: +$('#sRush').value, maxPizzasPerSlot: +$('#sMax').value, banner: $('#sBanner').value } });
+    await api('/settings', { method: 'PUT', body: { rushMinutes: +$('#sRush').value, maxPizzasPerSlot: +$('#sMax').value, banner: $('#sBanner').value, halfAndHalf: $('#sHalf').checked } });
     $('#sOk').textContent = '✓ Enregistré';
   });
 }
@@ -203,7 +204,7 @@ async function loadMenu() {
       <label><input type="checkbox" data-f="available" ${s.available ? 'checked' : ''}> actif</label><button class="act sm" data-savesup>OK</button></div>`).join('')}
     <div class="card row"><input id="sName" class="grow" placeholder="Nouveau supplément"><input id="sPrice" size="6" placeholder="Prix €" inputmode="decimal"><button class="act sm" id="sAdd">Ajouter</button></div>
     <h3>Formules</h3>
-    <p class="muted">Composition : liste de types séparés par des virgules (pizza, boisson, dessert, autre). Le client choisit un article de chaque type.</p>
+    <p class="muted">Composition : liste de types séparés par des virgules (pizza, boisson, dessert, autre). Le client choisit un article de chaque type. Ex. « Pizza Duo » : une seule case « pizza » (la demi-pizza), la salade est dans le nom de la formule.</p>
     ${combos.map((c) => `<div class="card ${c.available ? '' : 'off'}" data-combo="${c.id}">
       <div class="row"><input data-f="name" class="grow" value="${esc(c.name)}"><input data-f="price" size="6" inputmode="decimal" value="${(c.price_cents / 100).toFixed(2)}"></div>
       <div class="row" style="margin-top:8px"><input data-f="description" class="grow" value="${esc(c.description)}"><input data-f="slots" value="${esc(c.slots.join(', '))}">

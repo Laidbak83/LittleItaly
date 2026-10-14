@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../src/app.js';
 import { openDb } from '../src/db.js';
+import { seedFixture } from './fixture.js';
 import { loadConfig } from '../src/config.js';
 import { availableSlots } from '../src/time.js';
 
@@ -12,7 +13,7 @@ const config = { ...loadConfig({ ADMIN_TOKEN: 'secret', STRIPE_PUBLISHABLE_KEY: 
 async function setup(opts = {}) {
   const pushes = [];
   const app = await buildApp({
-    db: openDb(':memory:'),
+    db: seedFixture(openDb(':memory:', { seed: false })),
     config,
     now: () => NOW,
     fetchImpl: async (url, init) => pushes.push(JSON.parse(init.body)),
@@ -29,8 +30,11 @@ const admin = { authorization: 'Bearer secret' };
 test('créneaux : respectent le délai de préparation et les plages', () => {
   const { slots } = availableSlots(config, NOW); // il est 12:00 → premier créneau 12:30 puis 18:00
   assert.equal(slots[0], '12:30');
-  assert.ok(slots.includes('18:00') && slots.includes('22:00'));
-  assert.ok(!slots.includes('15:00'));
+  // mercredi : service continu jusqu'à 19h, pas de créneau ensuite
+  assert.ok(slots.includes('15:00') && slots.includes('19:00'));
+  assert.ok(!slots.includes('19:15') && !slots.includes('11:45'));
+  const sunday = availableSlots(config, new Date('2026-10-18T07:00:00Z')).slots; // dimanche 9h
+  assert.equal(sunday.at(-1), '15:00');
 });
 
 test('commande au retrait : prix calculé côté serveur', async () => {
