@@ -10,6 +10,7 @@ import { lineFromConfig } from './src/lines';
 import { LoyaltyScreen } from './src/LoyaltyScreen';
 import { MenuScreen } from './src/MenuScreen';
 import { OrderScreen } from './src/OrderScreen';
+import { initPush } from './src/push';
 import { loadSaved } from './src/storage';
 import { colors } from './src/theme';
 
@@ -36,6 +37,7 @@ function Shell() {
   }, []);
 
   useEffect(() => {
+    initPush();
     loadMenu();
     loadSaved().then(async (s) => {
       setLoyaltyId(s.loyaltyId);
