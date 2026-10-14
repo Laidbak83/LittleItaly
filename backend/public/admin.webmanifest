@@ -1,0 +1,16 @@
+{
+  "name": "Little Italy – Cuisine et tableau de bord",
+  "short_name": "Little Italy",
+  "description": "Commandes en direct, statistiques et clients du restaurant",
+  "start_url": "/admin",
+  "scope": "/admin",
+  "display": "standalone",
+  "background_color": "#FAF6F0",
+  "theme_color": "#C8102E",
+  "lang": "fr",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

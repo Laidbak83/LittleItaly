@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { euro, getOrder, Order, OrderStatus } from './api';
+import { RatingCard } from './RatingCard';
 import { colors } from './theme';
 
 const STEPS: { status: OrderStatus; label: string }[] = [
@@ -16,6 +17,7 @@ export function OrderScreen({ orderId, onReorder, onOrderChange }: Props) {
   const [order, setOrder] = useState<Order | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const reload = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     if (!orderId) return;
     let stopped = false;
@@ -31,6 +33,7 @@ export function OrderScreen({ orderId, onReorder, onOrderChange }: Props) {
         if (!stopped) setError((e as Error).message);
       }
     };
+    reload.current = tick;
     tick();
     const t = setInterval(tick, 5000);
     return () => {
@@ -77,6 +80,8 @@ export function OrderScreen({ orderId, onReorder, onOrderChange }: Props) {
           );
         })
       )}
+
+      {order.status === 'done' && <RatingCard order={order} onDone={() => reload.current()} />}
 
       <View style={styles.card}>
         {order.items.map((it, i) => (

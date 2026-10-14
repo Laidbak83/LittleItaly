@@ -4,8 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Little Italy – Commandes</title>
+<link rel="manifest" href="/admin.webmanifest">
+<meta name="theme-color" content="#C8102E">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Little Italy">
 <style>
-  :root { --bg:#faf6f0; --card:#fff; --ink:#222; --muted:#777; --red:#c8102e; --green:#2e7d32; --amber:#e08a00; --line:#e6dfd3; }
+  :root { --chart-main:#C8102E; --series-1:#2a78d6; --series-2:#eb6834; --grid:#e9e3d8; --good:#2e7d32; --warn:#b45309;
+    --bg:#faf6f0; --card:#fff; --ink:#222; --muted:#777; --red:#c8102e; --green:#2e7d32; --amber:#e08a00; --line:#e6dfd3; }
   * { box-sizing: border-box; }
   body { margin:0; font:16px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--ink); }
   header { background:var(--red); color:#fff; padding:12px 16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
@@ -36,6 +43,53 @@
   #login { max-width:340px; margin:60px auto; }
   .big { font-size:18px; padding:14px 18px; }
   .saved { color:var(--green); font-size:14px; }
+
+  /* Navigation : défile horizontalement sur petit écran plutôt que de déborder */
+  nav { display:flex; gap:6px; overflow-x:auto; max-width:100%; }
+  nav button { white-space:nowrap; }
+  /* Stats */
+  h3 { font-size:17px; }
+  .card h3 { margin:0 0 6px; }
+  .chip { padding:8px 12px; border:1px solid var(--line); border-radius:99px; background:#fff; font-size:15px; cursor:pointer; color:var(--ink); }
+  .chip.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .today { background:#fff8e6; border-color:#f0d98a; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:12px; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .tlabel { color:var(--muted); font-size:14px; }
+  .tvalue { font-size:30px; font-weight:700; letter-spacing:-.5px; margin:2px 0; }
+  .tsub { font-size:13px; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+  svg.chart { width:100%; height:auto; display:block; }
+  .axis { font-size:11px; fill:#6b6b6b; }
+  .peak { font-size:12px; font-weight:700; fill:var(--ink); }
+  .bars { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+  .barrow { display:grid; grid-template-columns:minmax(110px,32%) 1fr 54px; align-items:center; gap:10px; }
+  .barlabel { font-size:15px; }
+  .bartrack { height:14px; }
+  .barfill { height:14px; background:var(--chart-main); border-radius:0 4px 4px 0; min-width:2px; }
+  .barvalue { text-align:right; font-variant-numeric:tabular-nums; font-weight:600; }
+  .split { display:flex; gap:2px; height:22px; margin:10px 0 8px; }
+  .split > div { min-width:3px; }
+  .split > div:first-child { border-radius:4px 0 0 4px; } .split > div:last-child { border-radius:0 4px 4px 0; } .split > div:only-child { border-radius:4px; }
+  .legend { display:flex; gap:16px; flex-wrap:wrap; font-size:14px; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; }
+  .delta b { font-size:12px; }
+  .big { font-size:24px; }
+  .review { border-top:1px solid var(--line); padding:8px 0; font-size:15px; }
+  .tbl { border-collapse:collapse; width:100%; font-size:14px; margin-top:8px; }
+  .tbl th { text-align:left; color:var(--muted); font-weight:600; }
+  .tbl td, .tbl th { padding:5px 8px 5px 0; border-bottom:1px solid var(--line); vertical-align:top; }
+  details summary { outline:none; }
+  details.client > summary { cursor:pointer; }
+  details.client .detail { margin-top:10px; border-top:1px solid var(--line); padding-top:10px; }
+  textarea { width:100%; }
+  #tip { position:fixed; z-index:50; background:#222; color:#fff; padding:6px 10px; border-radius:8px; font-size:13px; pointer-events:none; max-width:280px; }
+  .stripe { margin-bottom:12px; }
+  @media (max-width: 560px) {
+    .tiles { grid-template-columns:repeat(2,1fr); gap:8px; }
+    .tile { padding:10px; } .tvalue { font-size:22px; } .tsub { font-size:12px; }
+    main { padding:12px; } .barrow { grid-template-columns:minmax(90px,38%) 1fr 44px; gap:8px; }
+  }
 </style>
 </head>
 <body>
@@ -43,6 +97,8 @@
   <h1>🍕 Little Italy</h1>
   <nav id="nav" hidden>
     <button data-tab="orders" class="on">Commandes</button>
+    <button data-tab="stats">Stats</button>
+    <button data-tab="clients">Clients</button>
     <button data-tab="menu">Carte</button>
     <button data-tab="settings">Réglages</button>
   </nav>
@@ -54,9 +110,12 @@
     <p class="muted" id="loginErr"></p>
   </div>
   <section id="orders" hidden></section>
+  <section id="stats" hidden></section>
+  <section id="clients" hidden></section>
   <section id="menu" hidden></section>
   <section id="settings" hidden></section>
 </main>
+<script src="/admin-stats.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const euro = (c) => (c / 100).toFixed(2).replace('.', ',') + ' €';
@@ -104,22 +163,47 @@ function orderCard(o) {
       ${['new','preparing'].includes(o.status) ? `<button class="act red" data-id="${o.id}" data-status="cancelled">Annuler</button>` : ''}
     </div></div>`;
 }
+let todayStrip = '', todayAt = 0;
 async function loadOrders() {
+  if (Date.now() - todayAt > 60000) {
+    todayAt = Date.now();
+    api('/stats?days=1').then((st) => {
+      const t = st.today;
+      todayStrip = `<div class="card today stripe"><b>Aujourd'hui</b> — ${t.orders} commande${t.orders > 1 ? 's' : ''} · ${euro(t.revenue_cents)} · ${t.pizzas} pizza${t.pizzas > 1 ? 's' : ''}</div>`;
+      const el = document.querySelector('#orders .stripe'); if (el) el.outerHTML = todayStrip;
+    }).catch(() => {});
+  }
   const { orders } = await api('/orders');
   const fresh = orders.filter((o) => o.status === 'new' && !knownIds.has(o.id));
   if (fresh.length && !first) beep();
   orders.forEach((o) => knownIds.add(o.id)); first = false;
   const active = orders.filter((o) => ['new','preparing','ready'].includes(o.status));
   const past = orders.filter((o) => !active.includes(o));
-  $('#orders').innerHTML =
+  $('#orders').innerHTML = (todayStrip || '<div class="stripe"></div>') +
     (active.length ? active.map(orderCard).join('') : '<p class="muted">Aucune commande en cours.</p>') +
     (past.length ? `<h3>Terminées aujourd'hui</h3>` + past.map(orderCard).join('') : '');
 }
 
 /* ---------- Réglages ---------- */
 async function loadSettings() {
-  const s = await api('/settings');
+  const [s, { items }] = await Promise.all([api('/settings'), api('/menu')]);
+  const pizzas = items.filter((i) => i.kind === 'pizza' && i.available);
   $('#settings').innerHTML = `
+    <div class="card">
+      <b>⭐ Pizza de la semaine</b>
+      <div class="muted">Mise en avant en haut de la carte de l'appli, avec un prix promo si vous le souhaitez.</div>
+      <label class="f">Pizza
+        <select id="fItem"><option value="">— Aucune —</option>${pizzas.map((i) => `<option value="${i.id}" ${i.id === s.featuredItemId ? 'selected' : ''}>${esc(i.name)} (${euro(i.price_cents)})</option>`).join('')}</select></label>
+      <div class="row">
+        <label class="f grow">Prix promo € (laisser vide = prix normal)<input id="fPrice" inputmode="decimal" value="${s.featuredPriceCents === null ? '' : (s.featuredPriceCents / 100).toFixed(2).replace('.', ',')}"></label>
+        <label class="f grow">Jusqu'au (inclus, facultatif)<input id="fUntil" type="date" value="${s.featuredUntil ?? ''}"></label></div>
+      <label class="f">Petit texte (facultatif)<input id="fNote" maxlength="100" value="${esc(s.featuredNote)}" placeholder="Ex : Nouvelle recette du chef !"></label>
+      <p class="row"><button class="act" id="fSave">Enregistrer</button><span class="saved" id="fOk"></span></p>
+    </div>
+    <div class="card">
+      <label class="f">Plus rien à afficher ? Choisissez « Aucune » ci-dessus puis Enregistrer. Une pizza de la semaine s'arrête aussi toute seule après sa date de fin.</label>
+    </div>
+    ` + `
     <div class="card">
       <div class="row"><div class="grow"><b>Prise de commandes</b><div class="muted">Fermez en un clic quand vous n'en pouvez plus ou en cas de fermeture.</div></div>
       <button class="act big ${s.ordersOpen ? 'green' : ''}" id="sOpen">${s.ordersOpen ? '🟢 Ouvert' : '🔴 Fermé'}</button></div>
@@ -134,6 +218,16 @@ async function loadSettings() {
         <input id="sBanner" maxlength="140" value="${esc(s.banner)}" placeholder="Ex : 🔥 Pizza du moment : Diavola à 11 € !"></label>
       <p class="row"><button class="act" id="sSave">Enregistrer</button><span class="saved" id="sOk"></span></p>
     </div>`;
+  $('#fSave').onclick = safe(async () => {
+    const id = $('#fItem').value;
+    const priceTxt = $('#fPrice').value.trim();
+    const price = priceTxt === '' ? null : toCents(priceTxt);
+    if (price !== null && isNaN(price)) return alert('Prix promo invalide');
+    await api('/settings', { method: 'PUT', body: id
+      ? { featuredItemId: Number(id), featuredPriceCents: price, featuredUntil: $('#fUntil').value, featuredNote: $('#fNote').value }
+      : { featuredItemId: null } });
+    $('#fOk').textContent = '✓ Enregistré';
+  });
   $('#sOpen').onclick = safe(async () => { await api('/settings', { method: 'PUT', body: { ordersOpen: !s.ordersOpen } }); loadSettings(); });
   $('#sSave').onclick = safe(async () => {
     await api('/settings', { method: 'PUT', body: { rushMinutes: +$('#sRush').value, maxPizzasPerSlot: +$('#sMax').value, banner: $('#sBanner').value, halfAndHalf: $('#sHalf').checked } });
@@ -270,10 +364,11 @@ async function loadMenu() {
 /* ---------- Navigation ---------- */
 function show() {
   $('#login').hidden = true; $('#nav').hidden = false;
-  for (const t of ['orders', 'menu', 'settings']) $('#' + t).hidden = tab !== t;
+  for (const t of TABS) $('#' + t).hidden = tab !== t;
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
 }
-const loaders = { orders: loadOrders, menu: loadMenu, settings: loadSettings };
+const TABS = ['orders', 'stats', 'clients', 'menu', 'settings'];
+const loaders = { orders: loadOrders, stats: loadStats, clients: loadClients, menu: loadMenu, settings: loadSettings };
 // Seules les commandes se rafraîchissent seules : on ne touche pas aux formulaires en cours d'édition.
 async function refresh(force = false) {
   try {
@@ -282,7 +377,7 @@ async function refresh(force = false) {
   } catch (e) {
     if (!e.auth) return console.error(e);
     clearInterval(timer); sessionStorage.removeItem('adminToken');
-    $('#nav').hidden = true; for (const t of ['orders', 'menu', 'settings']) $('#' + t).hidden = true;
+    $('#nav').hidden = true; for (const t of TABS) $('#' + t).hidden = true;
     $('#login').hidden = false;
     $('#loginErr').textContent = e.status === 503 ? "Le serveur n'a pas de code d'accès configuré." : 'Code incorrect.';
   }
@@ -297,6 +392,7 @@ $('#orders').onclick = safe(async (e) => {
   if (b.dataset.status === 'cancelled' && !confirm('Annuler cette commande ?')) return;
   await api(`/orders/${b.dataset.id}/status`, { method: 'PATCH', body: { status: b.dataset.status } }); refresh();
 });
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/admin' }).catch(() => {});
 if (token) start(); else $('#login').hidden = false;
 </script>
 </body>

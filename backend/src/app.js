@@ -11,7 +11,8 @@ import Stripe from 'stripe';
 import { availableSlots, localNow } from './time.js';
 import { sendPush } from './push.js';
 import { OrderError, priceLine, shapeItem } from './pricing.js';
-import { readSettings, writeSettings } from './settings.js';
+import { activeFeatured, readSettings, writeSettings } from './settings.js';
+import { bestSellers, computeStats, customerDetail, listCustomers, ratingsByItem } from './stats.js';
 import { addStamps, consumeReward, isValidLoyaltyId, loyaltyStatus, REWARD_TARGET, refundReward } from './loyalty.js';
 
 const STATUSES = ['new', 'preparing', 'ready', 'done', 'cancelled'];
@@ -37,6 +38,21 @@ function loadOrder(db, id) {
 
 // Ne jamais exposer le jeton push, l'identifiant Stripe ni l'identifiant de fidélité.
 const publicOrder = ({ push_token, stripe_payment_intent, loyalty_id, stamps_credited, ...rest }) => rest;
+
+// Pizzas qu'un client peut noter : celles de sa commande (entières, moitiés, ou choisies dans une formule).
+function rateableItems(db, order) {
+  const ids = new Set();
+  for (const it of order.items) {
+    const c = it.config;
+    if (c.comboId !== undefined) c.picks.forEach((id) => ids.add(id));
+    else {
+      ids.add(c.itemId);
+      if (c.halfItemId) ids.add(c.halfItemId);
+    }
+  }
+  const get = db.prepare("SELECT id, name FROM menu_items WHERE id = ? AND kind = 'pizza'");
+  return [...ids].map((id) => get.get(id)).filter(Boolean).map((r) => ({ itemId: r.id, name: r.name }));
+}
 
 const transaction = (db, fn) => {
   db.exec('BEGIN IMMEDIATE');
@@ -127,6 +143,18 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
     return { ...result, maxPizzasPerSlot: settings.maxPizzasPerSlot };
   };
 
+  const todayDate = () => localNow(config.timezone, now()).date;
+  const featuredNow = () => activeFeatured(db, readSettings(db), todayDate());
+
+  // Best-sellers : calcul léger mais fréquent (chaque ouverture de la carte) → mémorisé 5 min.
+  let bsCache = { until: 0, date: '', ids: [] };
+  const bestSellersNow = () => {
+    const t = now().getTime();
+    const date = todayDate();
+    if (t >= bsCache.until || bsCache.date !== date) bsCache = { until: t + 5 * 60 * 1000, date, ids: bestSellers(db, date) };
+    return bsCache.ids;
+  };
+
   // ---------- Public ----------
   app.get('/api/health', async () => ({ ok: true }));
 
@@ -141,14 +169,36 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
   });
 
   app.get('/api/menu', async () => {
-    const items = db.prepare('SELECT * FROM menu_items WHERE available = 1 ORDER BY position, id').all().map(shapeItem);
+    const featured = featuredNow();
+    const ratings = ratingsByItem(db);
+    const items = db
+      .prepare('SELECT * FROM menu_items WHERE available = 1 ORDER BY position, id')
+      .all()
+      .map((row) => {
+        const item = shapeItem(row);
+        const promo = featured && featured.itemId === item.id && featured.priceCents !== null;
+        return {
+          ...item,
+          price_cents: promo ? featured.priceCents : item.price_cents,
+          regular_price_cents: promo ? item.price_cents : null,
+          ...(ratings.get(item.id) ?? { rating_avg: null, rating_count: 0 }),
+        };
+      });
     const supplements = db.prepare('SELECT id, name, price_cents FROM supplements WHERE available = 1 ORDER BY id').all();
     const combos = db
       .prepare('SELECT id, name, description, price_cents, slots FROM combos WHERE available = 1 ORDER BY id')
       .all()
       .map((c) => ({ ...c, slots: JSON.parse(c.slots) }));
     const settings = readSettings(db);
-    return { items, supplements, combos, banner: settings.banner, halfAndHalf: settings.halfAndHalf };
+    return {
+      items,
+      supplements,
+      combos,
+      banner: settings.banner,
+      halfAndHalf: settings.halfAndHalf,
+      featured: featured ? { itemId: featured.itemId, note: featured.note, until: featured.until } : null,
+      bestSellers: bestSellersNow().filter((id) => items.some((i) => i.id === id)),
+    };
   });
 
   app.get('/api/slots', async (req) => {
@@ -185,7 +235,8 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
         return reply.code(423).send({ error: 'Les commandes sont momentanément fermées' });
 
       expireStale();
-      const lines = b.items.map((l) => priceLine(db, l));
+      const featured = featuredNow();
+      const lines = b.items.map((l) => priceLine(db, l, featured));
       const pizzaCount = lines.reduce((n, l) => n + l.pizzas, 0);
       const subtotal = lines.reduce((s, l) => s + l.unitCents * l.quantity, 0);
 
@@ -259,8 +310,42 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
   app.get('/api/orders/:id', async (req, reply) => {
     const order = loadOrder(db, req.params.id);
     if (!order) return reply.code(404).send({ error: 'Commande introuvable' });
-    return { order: publicOrder(order) };
+    const result = publicOrder(order);
+    if (order.status === 'done') {
+      result.rateable = rateableItems(db, order);
+      result.ratings = db.prepare('SELECT item_id AS itemId, rating FROM ratings WHERE order_id = ?').all(order.id);
+    }
+    return { order: result };
   });
+
+  // Avis sur les pizzas : possible une seule fois par pizza, après le retrait de la commande.
+  app.post(
+    '/api/orders/:id/ratings',
+    { config: { rateLimit: { max: 30, timeWindow: '1 hour' } } },
+    async (req, reply) => {
+      const order = loadOrder(db, req.params.id);
+      if (!order) return reply.code(404).send({ error: 'Commande introuvable' });
+      if (order.status !== 'done') return reply.code(409).send({ error: 'Vous pourrez noter vos pizzas après le retrait de la commande' });
+      const allowed = new Set(rateableItems(db, order).map((r) => r.itemId));
+      const list = req.body?.ratings;
+      if (!Array.isArray(list) || list.length === 0 || list.length > 10) return reply.code(400).send({ error: 'Avis invalide' });
+      const seen = new Set();
+      for (const r of list) {
+        if (!Number.isInteger(r?.itemId) || !allowed.has(r.itemId) || seen.has(r.itemId)) return reply.code(400).send({ error: 'Pizza invalide' });
+        if (!Number.isInteger(r.rating) || r.rating < 1 || r.rating > 5) return reply.code(400).send({ error: 'Note invalide (1 à 5)' });
+        seen.add(r.itemId);
+      }
+      const done = new Set(db.prepare('SELECT item_id FROM ratings WHERE order_id = ?').all(order.id).map((r) => r.item_id));
+      if (list.some((r) => done.has(r.itemId))) return reply.code(409).send({ error: 'Vous avez déjà noté cette pizza' });
+      const comment = String(req.body?.comment ?? '').trim().slice(0, 300);
+      transaction(db, () => {
+        const insert = db.prepare('INSERT INTO ratings (order_id, item_id, rating, created_at) VALUES (?,?,?,?)');
+        for (const r of list) insert.run(order.id, r.itemId, r.rating, now().toISOString());
+        if (comment && !order.feedback) db.prepare('UPDATE orders SET feedback = ? WHERE id = ?').run(comment, order.id);
+      });
+      return reply.code(201).send({ ok: true });
+    },
+  );
 
   // ---------- Stripe ----------
   app.post('/api/stripe/webhook', async (req, reply) => {
@@ -334,6 +419,24 @@ export async function buildApp({ db, config, stripe, fetchImpl = fetch, now = ()
       if (status === 'ready')
         sendPush(order.push_token, 'Votre commande est prête 🍕', `Commande n°${order.number} à retirer chez Little Italy.`, fetchImpl);
       return { order: publicOrder(loadOrder(db, order.id)) };
+    });
+
+    admin.get('/stats', async (req, reply) => {
+      const days = req.query.days === undefined ? 30 : Number(req.query.days);
+      if (!Number.isInteger(days) || days < 1 || days > 365) return reply.code(400).send({ error: 'Période invalide (1 à 365 jours)' });
+      return computeStats(db, config, now(), days);
+    });
+
+    admin.get('/customers', async () => ({ customers: listCustomers(db, config, now()) }));
+    admin.get('/customers/:phone', async (req, reply) => {
+      const c = customerDetail(db, config, now(), req.params.phone);
+      return c ?? reply.code(404).send({ error: 'Client introuvable' });
+    });
+    admin.put('/customers/:phone/note', async (req, reply) => {
+      if (!/^\+?\d{10,14}$/.test(req.params.phone)) return reply.code(400).send({ error: 'Numéro invalide' });
+      const note = String(req.body?.note ?? '').trim().slice(0, 500);
+      db.prepare('INSERT INTO customer_notes (phone, note) VALUES (?,?) ON CONFLICT(phone) DO UPDATE SET note = excluded.note').run(req.params.phone, note);
+      return { ok: true };
     });
 
     admin.get('/settings', async () => readSettings(db));

@@ -35,3 +35,23 @@ export const s = StyleSheet.create({
   roundText: { fontSize: 22, lineHeight: 26, color: colors.ink },
   qty: { minWidth: 30, textAlign: 'center', fontWeight: '700', fontSize: 16 },
 });
+
+// Cinq étoiles tactiles (ou en lecture seule si onChange est absent).
+export function Stars({ value, onChange, size = 30 }: { value: number; onChange?: (v: number) => void; size?: number }) {
+  return (
+    <View style={{ flexDirection: 'row', gap: 4 }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Pressable
+          key={n}
+          disabled={!onChange}
+          hitSlop={6}
+          onPress={() => onChange?.(n)}
+          accessibilityRole={onChange ? 'button' : 'image'}
+          accessibilityLabel={`${n} étoile${n > 1 ? 's' : ''} sur 5`}
+        >
+          <Text style={{ fontSize: size, color: n <= value ? '#F6A800' : '#D8D2C6' }}>★</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}

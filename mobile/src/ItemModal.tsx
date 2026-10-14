@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { euro, MenuData, MenuItem } from './api';
+import { euro, MenuData, MenuItem, ratingText } from './api';
 import { buildItemLine, CartLine, defaultChoice, ItemChoice } from './lines';
 import { colors } from './theme';
 import { Chip, Stepper } from './ui';
@@ -39,6 +39,9 @@ export function ItemModal({ menu, item, onClose, onAdd }: Props) {
             </Pressable>
           </View>
           {item.description ? <Text style={styles.muted}>{item.description}</Text> : null}
+          {item.rating_count >= 3 && item.rating_avg ? (
+            <Text style={styles.rating}>★ {ratingText(item.rating_avg)} · {item.rating_count} avis</Text>
+          ) : null}
           {item.allergens.length > 0 && <Text style={styles.allergens}>Allergènes : {item.allergens.join(', ')}</Text>}
 
           {item.sizes.length > 0 && (
@@ -139,6 +142,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontWeight: '800', color: colors.red, flex: 1 },
   close: { fontSize: 24, color: colors.muted, padding: 4 },
   muted: { color: colors.muted, marginTop: 2 },
+  rating: { color: '#B97700', fontWeight: '600', marginTop: 6 },
   allergens: { color: colors.muted, fontSize: 13, marginTop: 6 },
   h: { fontSize: 18, fontWeight: '700', color: colors.ink, marginTop: 20, marginBottom: 8 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

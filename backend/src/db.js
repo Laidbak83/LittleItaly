@@ -3,6 +3,11 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { seedMenu } from './seed.js';
 
+function ensureColumn(db, table, column, ddl) {
+  const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
 export function openDb(path, { seed = true } = {}) {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
@@ -75,7 +80,23 @@ export function openDb(path, { seed = true } = {}) {
       config TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_orders_pickup ON orders(pickup_date, pickup_time);
+    CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders(phone);
+    CREATE TABLE IF NOT EXISTS ratings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      item_id INTEGER NOT NULL,
+      rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      created_at TEXT NOT NULL,
+      UNIQUE (order_id, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ratings_item ON ratings(item_id);
+    CREATE TABLE IF NOT EXISTS customer_notes (
+      phone TEXT PRIMARY KEY,
+      note TEXT NOT NULL DEFAULT ''
+    );
   `);
+  // Bases créées avant l'ajout des avis : on complète sans rien perdre.
+  ensureColumn(db, 'orders', 'feedback', 'TEXT');
   if (seed && db.prepare('SELECT COUNT(*) AS n FROM menu_items').get().n === 0) seedMenu(db);
   return db;
 }

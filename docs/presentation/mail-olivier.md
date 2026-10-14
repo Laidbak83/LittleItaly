@@ -1,6 +1,6 @@
 **Objet : Little Italy – votre appli de commande de pizzas à emporter (première version)**
 
-*Pièces jointes : apercu-appli.png, cuisine-commandes.png*
+*Pièces jointes : apercu-appli.png, cuisine-commandes.png, dashboard-olivier.png*
 
 Bonjour Olivier,
 
@@ -15,6 +15,8 @@ Comme convenu, voici la première version de l'application **Little Italy** pour
 - **Le paiement en ligne ou au retrait**
 - **Le suivi de la commande** : reçue, en préparation, prête (avec une notification quand elle est prête)
 - **Une carte de fidélité** : 10 pizzas retirées = la suivante offerte
+- **La pizza de la semaine**, mise en avant en haut de la carte (avec un prix promo si vous le souhaitez)
+- **Les plus commandées** (best-sellers) et **la note des pizzas**, données par les clients après le retrait
 - **« Commander à nouveau »** en un seul geste
 
 ### Ce que vous voyez en cuisine (voir l'image « cuisine-commandes »)
@@ -27,6 +29,13 @@ Comme convenu, voici la première version de l'application **Little Italy** pour
   - un mode **« rush »** qui rallonge le délai de préparation ;
   - un **message en haut de l'appli** (pizza du moment, promo, congés) ;
   - la modification des **prix**, des **photos**, des articles disponibles, des suppléments et des formules.
+
+### Votre tableau de bord, même quand vous n'êtes pas au restaurant (voir l'image « dashboard-olivier », chiffres de démonstration)
+- **Chiffre d'affaires, nombre de commandes, panier moyen, pizzas vendues**, avec la comparaison à la période précédente
+- **Courbes** : chiffre d'affaires par jour, heures de pointe, jours les plus chargés
+- **Les pizzas les plus vendues et les mieux notées**, et les avis laissés par les clients
+- **Un fichier clients** : historique de commandes, pizza préférée, clients « à relancer », notes privées (allergies, habitudes), export Excel
+- Il s'installe sur l'écran d'accueil du téléphone comme une application. Pour le consulter hors du restaurant, le serveur doit être en ligne, ce qui sera le cas à la mise en production.
 
 ### Ce dont j'ai besoin de vous
 1. **Valider la carte.** J'ai repris celle affichée au restaurant (prix, descriptions). Merci de relire, et de me dire si la liste des suppléments à 1 € vous convient.

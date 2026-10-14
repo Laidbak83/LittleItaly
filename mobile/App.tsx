@@ -89,7 +89,7 @@ function Shell() {
       </View>
       <View style={{ flex: 1 }}>
         {tab === 'menu' && (
-          <MenuScreen menu={menu} error={menuError} config={config} lastOrder={lastOrder} onReload={loadMenu} onReorder={reorder} />
+          <MenuScreen menu={menu} error={menuError} config={config} lastOrder={lastOrder} onReload={loadMenu} onReorder={reorder} onRate={() => setTab('order')} />
         )}
         {tab === 'cart' && (
           <CartScreen

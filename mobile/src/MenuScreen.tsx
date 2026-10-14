@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
-import { AppConfig, Combo, euro, imageUrl, MenuData, MenuItem, Order } from './api';
+import { AppConfig, Combo, euro, frDate, imageUrl, MenuData, MenuItem, Order, ratingText } from './api';
 import { useCart } from './cart';
 import { ComboModal } from './ComboModal';
 import { ItemModal } from './ItemModal';
@@ -18,9 +18,10 @@ type Props = {
   lastOrder: Order | null;
   onReload: () => Promise<void>;
   onReorder: (order: Order) => void;
+  onRate: () => void;
 };
 
-export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder }: Props) {
+export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder, onRate }: Props) {
   const cart = useCart();
   const [vegOnly, setVegOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -63,6 +64,13 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
     );
   }
 
+  const featuredItem = menu.featured ? menu.items.find((i) => i.id === menu.featured!.itemId) ?? null : null;
+  const showFeatured = featuredItem && (!vegOnly || featuredItem.vegetarian) ? featuredItem : null;
+  const bestSellers = menu.bestSellers
+    .map((id) => menu.items.find((i) => i.id === id))
+    .filter((i): i is MenuItem => !!i && (!vegOnly || i.vegetarian));
+  const toRate = !!lastOrder && lastOrder.status === 'done' && (lastOrder.rateable?.length ?? 0) > (lastOrder.ratings?.length ?? 0);
+
   const open = (item: MenuItem) => {
     if (item.kind === 'pizza') setEditing(item);
     else cart.addLine(buildItemLine(menu, item, defaultChoice, 1));
@@ -74,6 +82,43 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
         <Text style={[styles.notice, { backgroundColor: '#555' }]}>Les commandes sont momentanément fermées.</Text>
       )}
       {menu.banner ? <Text style={styles.notice}>{menu.banner}</Text> : null}
+      {toRate && (
+        <Pressable style={styles.rateCard} onPress={onRate}>
+          <Text style={styles.rateTitle}>⭐ Comment était votre dernière commande ?</Text>
+          <Text style={styles.muted}>Notez vos pizzas en 10 secondes.</Text>
+        </Pressable>
+      )}
+      {showFeatured && (
+        <Pressable style={styles.featured} onPress={() => open(showFeatured)} accessibilityLabel={`Pizza de la semaine : ${showFeatured.name}`}>
+          <Text style={styles.featuredTag}>⭐ PIZZA DE LA SEMAINE</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.featuredName}>{showFeatured.name}</Text>
+              <Text style={styles.featuredDesc}>{showFeatured.description}</Text>
+              {menu.featured?.note ? <Text style={styles.featuredNote}>{menu.featured.note}</Text> : null}
+              {menu.featured?.until ? <Text style={styles.featuredDesc}>Jusqu'au {frDate(menu.featured.until)}</Text> : null}
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              {showFeatured.regular_price_cents ? <Text style={styles.strike}>{euro(showFeatured.regular_price_cents)}</Text> : null}
+              <Text style={styles.featuredPrice}>{euro(showFeatured.price_cents)}</Text>
+            </View>
+          </View>
+        </Pressable>
+      )}
+      {bestSellers.length > 0 && (
+        <View style={{ marginBottom: 4 }}>
+          <Text style={styles.section}>🔥 Les plus commandées</Text>
+          <View style={styles.bestRow}>
+            {bestSellers.map((it) => (
+              <Pressable key={it.id} style={styles.bestCard} onPress={() => open(it)} accessibilityLabel={`${it.name}, best-seller`}>
+                <Text style={styles.bestName} numberOfLines={1}>{it.name}</Text>
+                <Text style={styles.price}>{euro(it.price_cents)}</Text>
+                {it.rating_count >= 3 && it.rating_avg ? <Text style={styles.rating}>★ {ratingText(it.rating_avg)}</Text> : null}
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
       {lastOrder && lastOrder.status !== 'cancelled' && lastOrder.status !== 'pending_payment' && (
         <Pressable style={styles.reorder} onPress={() => onReorder(lastOrder)}>
           <View style={{ flex: 1 }}>
@@ -135,10 +180,18 @@ export function MenuScreen({ menu, error, config, lastOrder, onReload, onReorder
               <View style={{ flex: 1 }}>
                 <Text style={styles.name}>
                   {item.name} {item.vegetarian && item.kind === 'pizza' ? '🌱' : ''}
+                  {menu.bestSellers.includes(item.id) ? '🔥' : ''}
                 </Text>
                 {item.description ? <Text style={styles.desc}>{item.description}</Text> : null}
                 {item.allergens.length > 0 && <Text style={styles.allergens}>Allergènes : {item.allergens.join(', ')}</Text>}
-                <Text style={styles.price}>{item.sizes.length ? 'dès ' : ''}{euro(item.price_cents)}</Text>
+                {item.rating_count >= 3 && item.rating_avg ? (
+                  <Text style={styles.rating}>★ {ratingText(item.rating_avg)} <Text style={styles.muted}>({item.rating_count} avis)</Text></Text>
+                ) : null}
+                <Text style={styles.price}>
+                  {item.sizes.length ? 'dès ' : ''}
+                  {euro(item.price_cents)}
+                  {item.regular_price_cents ? <Text style={styles.strikeDark}>  {euro(item.regular_price_cents)}</Text> : null}
+                </Text>
               </View>
               <View style={[styles.addBtn]}>
                 <Text style={styles.addText}>{item.kind === 'pizza' ? '›' : '+'}</Text>
@@ -175,6 +228,20 @@ const styles = StyleSheet.create({
   allergens: { color: colors.muted, fontSize: 12, marginTop: 2 },
   muted: { color: colors.muted },
   price: { marginTop: 6, fontWeight: '600', color: colors.ink },
+  rateCard: { backgroundColor: '#fff8e6', borderColor: '#f0d98a', borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 12 },
+  rateTitle: { fontWeight: '700', fontSize: 16, color: colors.ink, marginBottom: 2 },
+  featured: { backgroundColor: colors.red, borderRadius: 14, padding: 16, marginBottom: 12 },
+  featuredTag: { color: '#F6C453', fontWeight: '800', fontSize: 12, letterSpacing: 1, marginBottom: 6 },
+  featuredName: { color: '#fff', fontSize: 24, fontWeight: '800' },
+  featuredDesc: { color: '#ffffffd9', marginTop: 2 },
+  featuredNote: { color: '#F6C453', fontWeight: '600', marginTop: 4 },
+  featuredPrice: { color: '#fff', fontSize: 26, fontWeight: '800' },
+  strike: { color: '#ffffffb3', textDecorationLine: 'line-through', fontSize: 14 },
+  strikeDark: { color: colors.muted, textDecorationLine: 'line-through', fontWeight: '400' },
+  bestRow: { flexDirection: 'row', gap: 8 },
+  bestCard: { flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.line },
+  bestName: { fontWeight: '700', fontSize: 15, color: colors.ink },
+  rating: { color: '#B97700', fontWeight: '600', fontSize: 13, marginTop: 2 },
   addBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.red, alignItems: 'center', justifyContent: 'center' },
   addText: { color: '#fff', fontSize: 22, lineHeight: 26, fontWeight: '600' },
 });

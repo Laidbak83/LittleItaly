@@ -32,7 +32,11 @@ const intList = (v, max, label) => {
   return v;
 };
 
-function priceItem(db, line, qty) {
+// Prix de base d'une pizza, en tenant compte du prix promo de la pizza de la semaine.
+const baseCents = (item, featured) =>
+  featured && featured.itemId === item.id && featured.priceCents !== null ? featured.priceCents : item.price_cents;
+
+function priceItem(db, line, qty, featured) {
   const getItem = db.prepare('SELECT * FROM menu_items WHERE id = ? AND available = 1');
   const row = getItem.get(Number(line.itemId)) ?? fail('Article indisponible');
   const item = shapeItem(row);
@@ -45,12 +49,12 @@ function priceItem(db, line, qty) {
     line.sizeIndex !== undefined || line.halfItemId != null || extrasIds.length > 0 || removed.length > 0;
   if (item.kind !== 'pizza') {
     if (hasOptions) fail('Options indisponibles pour cet article');
-    return { name: item.name, details: '', unitCents: item.price_cents, quantity: qty, pizzas: 0, rewardEligible: false, config };
+    return { name: item.name, details: '', unitCents: baseCents(item, featured), quantity: qty, pizzas: 0, rewardEligible: false, config };
   }
 
   const details = [];
   let name = item.name;
-  let base = item.price_cents;
+  let base = baseCents(item, featured);
   let allowed = item.ingredients;
 
   if (line.halfItemId != null) {
@@ -59,7 +63,7 @@ function priceItem(db, line, qty) {
     const half = shapeItem(halfRow);
     if (half.kind !== 'pizza' || half.id === item.id) fail('Moitié-moitié invalide');
     name = `½ ${item.name} · ½ ${half.name}`;
-    base = Math.max(item.price_cents, half.price_cents); // on facture la plus chère
+    base = Math.max(baseCents(item, featured), baseCents(half, featured)); // on facture la plus chère
     allowed = [...new Set([...item.ingredients, ...half.ingredients])];
     config.halfItemId = half.id;
   }
@@ -127,9 +131,10 @@ function priceCombo(db, line, qty) {
   };
 }
 
-export function priceLine(db, line) {
+// featured : pizza de la semaine active (voir settings.activeFeatured), ou null.
+export function priceLine(db, line, featured = null) {
   if (!line || typeof line !== 'object') fail('Panier invalide');
   const qty = Number(line.quantity);
   if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) fail('Quantité invalide');
-  return line.comboId !== undefined ? priceCombo(db, line, qty) : priceItem(db, line, qty);
+  return line.comboId !== undefined ? priceCombo(db, line, qty) : priceItem(db, line, qty, featured);
 }
