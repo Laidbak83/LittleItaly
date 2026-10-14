@@ -4,5 +4,6 @@ import { buildApp } from './app.js';
 
 const config = loadConfig();
 if (!config.adminToken) console.warn('⚠️  ADMIN_TOKEN absent : l\'interface Olivier est désactivée.');
+if (process.env.OPEN_ALL_DAY === '1') console.warn('⚠️  OPEN_ALL_DAY=1 : mode test, créneaux ouverts 24h/24.');
 const app = await buildApp({ db: openDb(config.dbPath), config, logger: true });
 await app.listen({ port: config.port, host: '0.0.0.0' });

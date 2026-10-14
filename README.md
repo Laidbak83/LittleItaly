@@ -48,11 +48,25 @@ npx expo start
 Quand l'émulateur est lancé, appuyer sur **`a`** : Expo installe *Expo Go* dans l'émulateur et ouvre l'appli.
 L'émulateur joint automatiquement le backend du PC (`http://10.0.2.2:3000`), rien à configurer.
 
+**Écran de la cuisine** : ouvrir <http://localhost:3000/admin> (code `dev-admin`) dans le navigateur du PC. Pour le voir sur une tablette ou un téléphone du même Wi-Fi : `http://<IP-du-PC>:3000/admin` (autoriser Node.js dans le pare-feu Windows s'il le demande).
+En mode `npm run dev`, les créneaux de retrait sont **ouverts 24h/24** pour pouvoir tester à toute heure (`OPEN_ALL_DAY=1` dans `backend/.env.dev`, jamais en production).
+
+**Commandes de démonstration pour la cuisine** (sans passer par l'appli) : `npm run demo` dans `backend`.
+
+### Scénario de test conseillé
+
+1. **Appli** : ouvrir une pizza (ex. Calzone), ajouter un supplément, retirer un ingrédient, l'ajouter ; commander un Pizza Duo ; aller au *Panier* ; accepter une suggestion (boisson/dessert) ; choisir un créneau, saisir prénom et téléphone ; **Envoyer la commande**.
+2. **Cuisine** (`/admin`) : la commande apparaît avec un bip (cliquer une fois sur la page pour autoriser le son) et le détail des options. Cliquer **Préparer**, puis **Prête ✓**.
+3. **Appli**, onglet *Commande* : le statut avance tout seul (rafraîchi toutes les 5 s).
+4. **Cuisine** : cliquer **Retirée**. **Appli**, onglet *Fidélité* : un tampon par pizza apparaît.
+5. **Régulation** (`/admin` → *Réglages*) : passer en **Fermé** puis changer d'onglet dans l'appli → « commandes fermées » ; mettre le maximum de pizzas par créneau à 2 et commander 3 pizzas → créneau refusé ; ajouter un message en bannière → il s'affiche en haut de la carte.
+6. **Carte** (`/admin` → *Carte*) : changer un prix, masquer un article, ajouter une photo, saisir des allergènes → tirer l'écran de la carte vers le bas dans l'appli pour recharger.
+7. **Fidélité complète** : mettre 10 pizzas dans une commande, la passer en *Retirée* dans la cuisine → une **pizza offerte** apparaît dans l'appli au prochain panier.
+
 Notes pour le test dans Expo Go :
 - **Au retrait** fonctionne directement. Le paiement **en ligne** demande des clés Stripe de test (voir `backend/.env.example`, carte de test `4242 4242 4242 4242`).
 - Les **notifications push** ne fonctionnent pas dans Expo Go sur Android (elles nécessitent un build de l'appli) : la commande, elle, fonctionne normalement.
-- Pour tester la fidélité sans attendre 10 commandes : passer des commandes puis les marquer « Retirée » dans `/admin` (chaque pizza = 1 tampon).
-- Pour repartir de zéro : arrêter le backend et supprimer `backend/data/`.
+- Pour repartir de zéro : arrêter le backend et supprimer le dossier `backend/data/`.
 
 ## La carte chargée (d'après la carte affichée au restaurant)
 

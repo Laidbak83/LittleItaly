@@ -50,6 +50,11 @@ function Shell() {
       .catch(() => setConfig({ onlinePaymentEnabled: false, stripePublishableKey: null, ordersOpen: true, rewardTarget: 10 }));
   }, [loadMenu]);
 
+  // Ouvert / fermé et capacité peuvent changer en cours de service : on relit la config à chaque changement d'onglet.
+  useEffect(() => {
+    getConfig().then(setConfig).catch(() => {});
+  }, [tab]);
+
   // La carte de fidélité se met à jour quand on change d'onglet (après un retrait, par exemple).
   useEffect(() => {
     if (loyaltyId) getLoyalty(loyaltyId).then(setLoyalty).catch(() => setLoyalty(null));

@@ -1,6 +1,6 @@
 // Réglages du restaurant. Les horaires sont à CONFIRMER avec Olivier.
 export function loadConfig(env = process.env) {
-  return {
+  const config = {
     port: Number(env.PORT ?? 3000),
     adminToken: env.ADMIN_TOKEN ?? '',
     dbPath: env.DB_PATH ?? './data/littleitaly.db',
@@ -25,4 +25,10 @@ export function loadConfig(env = process.env) {
     },
     maxItemQty: 20,
   };
+  // Mode TEST (développement uniquement, via .env.dev) : créneaux ouverts toute la journée,
+  // pour pouvoir commander à n'importe quelle heure. Ne JAMAIS activer en production.
+  if (env.OPEN_ALL_DAY === '1') {
+    for (const day of Object.keys(config.hoursByWeekday)) config.hoursByWeekday[day] = [['00:00', '23:45']];
+  }
+  return config;
 }
